@@ -18,4 +18,6 @@ WORKDIR /app
 
 COPY --from=build /app/build/install/meventus /app
 
+EXPOSE 8080
+
 ENTRYPOINT ["/app/bin/meventus"]

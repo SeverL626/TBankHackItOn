@@ -7,10 +7,12 @@ import org.jetbrains.exposed.sql.javatime.timestamp
 object EventsTable : LongIdTable("events") {
     val ownerId = long("owner_id").references(UsersTable.telegramId)
     val title = varchar("title", 256)
-    val description = text("description").nullable()
-    val location = varchar("location", 256).nullable()
+    val shortDescription = varchar("short_description", 512).default("")
+    val description = text("description").default("")
+    val photoFileId = varchar("photo_file_id", 256).nullable()
+    val address = varchar("address", 512).default("")
     val startsAt = timestamp("starts_at")
-    val capacity = integer("capacity").nullable()
+    val cost = long("cost").default(0)
     val status = enumerationByName("status", 16, EventStatus::class)
     val createdAt = timestamp("created_at")
 }

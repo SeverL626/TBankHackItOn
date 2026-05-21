@@ -5,6 +5,7 @@ import com.typesafe.config.ConfigFactory
 data class AppConfig(
     val bot: BotConfig,
     val database: DatabaseConfig,
+    val webApp: WebAppConfig,
 ) {
     companion object {
         fun load(): AppConfig {
@@ -19,6 +20,10 @@ data class AppConfig(
                     username = raw.getString("database.username"),
                     password = raw.getString("database.password"),
                     maxPoolSize = raw.getInt("database.maxPoolSize"),
+                ),
+                webApp = WebAppConfig(
+                    port = raw.getInt("webapp.port"),
+                    url = raw.getString("webapp.url"),
                 ),
             )
         }
