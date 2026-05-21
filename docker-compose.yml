@@ -16,7 +16,9 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
     container_name: tbank-hackiton-app
     restart: unless-stopped
     env_file:

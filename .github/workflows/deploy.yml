@@ -10,7 +10,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to VPS
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build app on GitHub runner
+        run: |
+          chmod +x ./gradlew
+          ./gradlew installDist --no-daemon
+          tar -C build/install -czf meventus.tar.gz meventus
+
+      - name: Upload and deploy to VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -23,22 +38,26 @@ jobs:
 
           ssh-keyscan -p "${VPS_SSH_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
+          ssh -p "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p /opt/myapp"
+
+          scp -P "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key \
+            meventus.tar.gz docker-compose.yml Dockerfile.runtime .env.example \
+            "$VPS_USER@$VPS_HOST:/opt/myapp/"
+
           ssh -p "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" << 'EOF'
             set -e
 
             cd /opt/myapp
 
-            GIT_SSH_COMMAND="ssh -i ~/.ssh/tbankhack_repo_deploy -o IdentitiesOnly=yes" git fetch origin main
-            git reset --hard origin/main
+            rm -rf runtime
+            mkdir -p runtime
+            tar -xzf meventus.tar.gz -C runtime
 
-            if [ -f docker-compose.prod.yml ]; then
-              docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-            elif [ -f docker-compose.yml ]; then
-              docker compose up -d --build --remove-orphans
-            else
-              echo "No docker compose file found"
-              exit 1
+            if [ ! -f .env ]; then
+              cp .env.example .env
+              echo ".env created. Fill BOT_TOKEN, BOT_USERNAME and POSTGRES_PASSWORD on VPS."
             fi
 
+            docker compose up -d --build --remove-orphans
             docker image prune -f
           EOF
