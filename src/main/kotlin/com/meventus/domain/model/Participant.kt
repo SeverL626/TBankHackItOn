@@ -6,4 +6,5 @@ data class Participant(
     val eventId: Long,
     val userId: Long,
     val joinedAt: Instant,
+    val contributed: Long = 0,
 )

@@ -5,14 +5,13 @@ import com.meventus.domain.model.Participant
 import com.meventus.domain.repository.ParticipantRepository
 import com.meventus.infrastructure.persistence.tables.EventsTable
 import com.meventus.infrastructure.persistence.tables.ParticipantsTable
-import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
-import org.jetbrains.exposed.sql.innerJoin
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
-import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.update
 
 class ParticipantRepositoryImpl : ParticipantRepository {
 
@@ -21,19 +20,19 @@ class ParticipantRepositoryImpl : ParticipantRepository {
             it[eventId] = participant.eventId
             it[userId] = participant.userId
             it[joinedAt] = participant.joinedAt
+            it[contributed] = participant.contributed
         }
         participant
     }
 
-    override fun remove(eventId: Long, userId: Long) {
-        transaction {
-            ParticipantsTable.deleteWhere {
-                (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId)
-            }
+    override fun remove(eventId: Long, userId: Long) = transaction {
+        ParticipantsTable.deleteWhere {
+            (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId)
         }
+        Unit
     }
 
-    override fun listByEvent(eventId: Long): List<Participant> = transaction {
+    override fun findByEvent(eventId: Long): List<Participant> = transaction {
         ParticipantsTable.selectAll()
             .where { ParticipantsTable.eventId eq eventId }
             .map {
@@ -41,26 +40,32 @@ class ParticipantRepositoryImpl : ParticipantRepository {
                     eventId = it[ParticipantsTable.eventId],
                     userId = it[ParticipantsTable.userId],
                     joinedAt = it[ParticipantsTable.joinedAt],
+                    contributed = it[ParticipantsTable.contributed],
                 )
             }
     }
 
-    override fun listEventsByUser(userId: Long): List<Event> = transaction {
-        (ParticipantsTable innerJoin EventsTable)
-            .selectAll()
+    override fun findEventsByUser(userId: Long): List<Event> = transaction {
+        val eventIds = ParticipantsTable.selectAll()
             .where { ParticipantsTable.userId eq userId }
-            .map(::toEvent)
+            .map { it[ParticipantsTable.eventId] }
+        if (eventIds.isEmpty()) return@transaction emptyList()
+        val eventRepo = EventRepositoryImpl()
+        eventIds.mapNotNull { eventRepo.findById(it) }
     }
 
-    private fun toEvent(row: ResultRow): Event = Event(
-        id = row[EventsTable.id].value,
-        ownerId = row[EventsTable.ownerId],
-        title = row[EventsTable.title],
-        description = row[EventsTable.description],
-        location = row[EventsTable.location],
-        startsAt = row[EventsTable.startsAt],
-        capacity = row[EventsTable.capacity],
-        status = row[EventsTable.status],
-        createdAt = row[EventsTable.createdAt],
-    )
+    override fun isParticipant(eventId: Long, userId: Long): Boolean = transaction {
+        ParticipantsTable.selectAll()
+            .where { (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId) }
+            .count() > 0
+    }
+
+    override fun updateContribution(eventId: Long, userId: Long, amount: Long) = transaction {
+        ParticipantsTable.update({
+            (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId)
+        }) {
+            it[contributed] = amount
+        }
+        Unit
+    }
 }
