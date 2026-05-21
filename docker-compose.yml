@@ -1,7 +1,35 @@
 services:
-  app:
-    build: .
-    container_name: tbank-hackiton-app
-    ports:
-      - "127.0.0.1:8080:8080"
+  db:
+    image: postgres:16
+    container_name: tbank-hackiton-db
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-meventus}
+      POSTGRES_USER: ${POSTGRES_USER:-meventus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meventus}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meventus} -d ${POSTGRES_DB:-meventus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+    container_name: tbank-hackiton-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-meventus}
+      DATABASE_USER: ${POSTGRES_USER:-meventus}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-meventus}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
