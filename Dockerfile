@@ -10,7 +10,7 @@ COPY settings.gradle.kts .
 COPY src src
 
 RUN chmod +x ./gradlew
-RUN ./gradlew installDist --no-daemon
+RUN ./gradlew installDist --no-daemon -Dorg.gradle.jvmargs="-Xmx512m -XX:MaxMetaspaceSize=256m"
 
 FROM eclipse-temurin:17-jre
 
