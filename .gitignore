@@ -17,6 +17,11 @@ local.properties
 .env.local
 src/main/resources/application-local.conf
 
+.claude/settings.local.json
+.claude/CLAUDE.md
+
+docker-compose.override.yml
+
 *.DS_Store
 Thumbs.db
 run.sh
