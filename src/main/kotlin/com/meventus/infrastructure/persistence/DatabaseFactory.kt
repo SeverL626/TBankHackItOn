@@ -1,6 +1,7 @@
 package com.meventus.infrastructure.persistence
 
 import com.meventus.config.DatabaseConfig
+import com.meventus.infrastructure.persistence.tables.EventTagsTable
 import com.meventus.infrastructure.persistence.tables.EventsTable
 import com.meventus.infrastructure.persistence.tables.ParticipantsTable
 import com.meventus.infrastructure.persistence.tables.UsersTable
@@ -26,7 +27,9 @@ object DatabaseFactory {
         )
         Database.connect(hikari)
         transaction {
-            SchemaUtils.create(UsersTable, EventsTable, ParticipantsTable)
+            SchemaUtils.createMissingTablesAndColumns(
+                UsersTable, EventsTable, EventTagsTable, ParticipantsTable,
+            )
         }
     }
 }

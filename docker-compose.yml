@@ -21,6 +21,8 @@ services:
       dockerfile: Dockerfile.runtime
     container_name: tbank-hackiton-app
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     environment:
@@ -31,5 +33,5 @@ services:
       db:
         condition: service_healthy
 
-volumes:
-  postgres_data:
+  volumes:
+    postgres_data:
