@@ -7,17 +7,17 @@ COPY gradle gradle
 COPY build.gradle.kts .
 COPY settings.gradle.kts .
 
-COPY . .
+COPY src src
 
 RUN chmod +x ./gradlew
-RUN ./gradlew installDist --no-daemon
+RUN ./gradlew installDist --no-daemon -Dorg.gradle.jvmargs="-Xmx512m -XX:MaxMetaspaceSize=256m"
 
 FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
-COPY --from=build /app/build/install/meventus .
+COPY --from=build /app/build/install/meventus /app
 
 EXPOSE 8080
 
-ENTRYPOINT ["bin/meventus"]
+ENTRYPOINT ["/app/bin/meventus"]
