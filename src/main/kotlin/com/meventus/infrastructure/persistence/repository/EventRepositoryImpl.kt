@@ -90,9 +90,11 @@ class EventRepositoryImpl : EventRepository {
         }
     }
 
-    override fun delete(id: Long) = transaction {
-        EventTagsTable.deleteWhere { eventId eq id }
-        EventsTable.deleteWhere { EventsTable.id eq id }
+    override fun delete(id: Long) {
+        transaction {
+            EventTagsTable.deleteWhere { eventId eq id }
+            EventsTable.deleteWhere { EventsTable.id eq id }
+        }
     }
 
     private fun saveTags(eventId: Long, tags: Set<EventTag>) {
