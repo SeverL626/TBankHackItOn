@@ -17,5 +17,8 @@ local.properties
 .env.local
 src/main/resources/application-local.conf
 
+.claude/settings.local.json
+.claude/CLAUDE.md
+
 *.DS_Store
 Thumbs.db
