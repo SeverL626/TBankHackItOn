@@ -7,4 +7,7 @@ data class Participant(
     val userId: Long,
     val joinedAt: Instant,
     val contributed: Long = 0,
+    val paymentStatus: PaymentStatus = PaymentStatus.NOT_REQUIRED,
+    val payerPhone: String? = null,
+    val payerName: String? = null,
 )

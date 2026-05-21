@@ -15,4 +15,7 @@ data class Event(
     val cost: Long,
     val status: EventStatus,
     val createdAt: Instant,
+    val paymentType: PaymentType = PaymentType.ON_SITE,
+    val sbpPhone: String? = null,
+    val sbpName: String? = null,
 )

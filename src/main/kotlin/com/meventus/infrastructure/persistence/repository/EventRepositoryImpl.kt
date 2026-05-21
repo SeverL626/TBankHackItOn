@@ -2,6 +2,7 @@ package com.meventus.infrastructure.persistence.repository
 
 import com.meventus.domain.model.Event
 import com.meventus.domain.model.EventTag
+import com.meventus.domain.model.PaymentType
 import com.meventus.domain.repository.EventRepository
 import com.meventus.infrastructure.persistence.tables.EventTagsTable
 import com.meventus.infrastructure.persistence.tables.EventsTable
@@ -70,6 +71,9 @@ class EventRepositoryImpl : EventRepository {
                 it[cost] = event.cost
                 it[status] = event.status
                 it[createdAt] = event.createdAt
+                it[paymentType] = event.paymentType
+                it[sbpPhone] = event.sbpPhone
+                it[sbpName] = event.sbpName
             }.value
             saveTags(id, event.tags)
             event.copy(id = id)
@@ -83,6 +87,9 @@ class EventRepositoryImpl : EventRepository {
                 it[startsAt] = event.startsAt
                 it[cost] = event.cost
                 it[status] = event.status
+                it[paymentType] = event.paymentType
+                it[sbpPhone] = event.sbpPhone
+                it[sbpName] = event.sbpName
             }
             EventTagsTable.deleteWhere { eventId eq event.id }
             saveTags(event.id, event.tags)
@@ -90,11 +97,12 @@ class EventRepositoryImpl : EventRepository {
         }
     }
 
-    override fun delete(id: Long) {
-        transaction {
-            EventTagsTable.deleteWhere { eventId eq id }
-            EventsTable.deleteWhere { EventsTable.id eq id }
-        }
+
+    override fun delete(id: Long) = transaction {
+          EventTagsTable.deleteWhere { eventId eq id }
+          EventsTable.deleteWhere { EventsTable.id eq id }
+          Unit
+      }
     }
 
     private fun saveTags(eventId: Long, tags: Set<EventTag>) {
@@ -133,5 +141,8 @@ class EventRepositoryImpl : EventRepository {
         cost = row[EventsTable.cost],
         status = row[EventsTable.status],
         createdAt = row[EventsTable.createdAt],
+        paymentType = row[EventsTable.paymentType],
+        sbpPhone = row[EventsTable.sbpPhone],
+        sbpName = row[EventsTable.sbpName],
     )
 }
