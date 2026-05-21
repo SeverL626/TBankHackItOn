@@ -1,6 +1,6 @@
 # Meventus
 
-Telegram-бот для создания и организации мероприятий с Telegram Mini App для статистики.
+Telegram-бот для создания и организации мероприятий. Участники записываются через бота, организаторы управляют событиями через встроенное Mini App с Y2K-дизайном.
 
 ---
 
@@ -8,12 +8,14 @@ Telegram-бот для создания и организации меропри
 
 - [Стек](#стек)
 - [Быстрый старт](#быстрый-старт)
+- [Архитектура](#архитектура)
 - [Структура проекта](#структура-проекта)
 - [База данных](#база-данных)
 - [Команды бота](#команды-бота)
+- [Постоянная клавиатура](#постоянная-клавиатура)
 - [Машина состояний (FSM)](#машина-состояний-fsm)
-- [Inline-callbacks (кнопки)](#inline-callbacks-кнопки)
-- [Мини-приложение (WebApp)](#мини-приложение-webapp)
+- [Inline-callbacks](#inline-callbacks)
+- [Mini App (WebApp)](#mini-app-webapp)
 - [Конфигурация](#конфигурация)
 - [Деплой](#деплой)
 - [Как расширять](#как-расширять)
@@ -27,10 +29,15 @@ Telegram-бот для создания и организации меропри
 | Kotlin 2.0 / JVM 17 | язык и рантайм |
 | Gradle (Kotlin DSL) | сборка |
 | kotlin-telegram-bot 6.2.0 | DSL для Telegram Bot API |
-| Exposed 0.55 + HikariCP + PostgreSQL | ORM и пул соединений |
-| Typesafe Config (HOCON) | конфигурация через `application.conf` |
+| Exposed 0.55 + HikariCP | ORM и пул соединений к PostgreSQL |
+| PostgreSQL 16 | база данных |
+| Typesafe Config (HOCON) | конфигурация через `application.conf` + переменные окружения |
 | SLF4J + Logback | логирование |
-| `com.sun.net.httpserver` (JDK built-in) | HTTP-сервер для Mini App |
+| `com.sun.net.httpserver` (JDK) | встроенный HTTP-сервер для Mini App (без зависимостей) |
+| Telegram WebApp JS SDK | инициализация Mini App в WebView |
+| Docker + Docker Compose | контейнеризация |
+| GitHub Actions | CI/CD деплой на VPS по SSH |
+| Cloudflare Tunnel | бесплатный HTTPS-туннель для Mini App при локальной разработке |
 
 ---
 
@@ -44,30 +51,93 @@ BOT_USERNAME=PhisMathBot             # username без @
 DATABASE_URL=jdbc:postgresql://localhost:5432/meventus
 DATABASE_USER=meventus
 DATABASE_PASSWORD=meventus
-WEBAPP_URL=https://your-domain.com   # HTTPS-адрес для Mini App
+WEBAPP_URL=https://your-domain.com   # HTTPS-адрес Mini App (http не работает в Telegram)
 WEBAPP_PORT=8080                     # порт HTTP-сервера (по умолчанию 8080)
 ```
 
-### Запуск локально
+### Локальный запуск
 
 ```bash
-# 1. Поднять PostgreSQL
+# 1. PostgreSQL
 docker run -d --name pg \
   -e POSTGRES_DB=meventus \
   -e POSTGRES_USER=meventus \
   -e POSTGRES_PASSWORD=meventus \
   -p 5432:5432 postgres:16
 
-# 2. Запустить бота
-BOT_TOKEN=... BOT_USERNAME=... ./gradlew run
+# 2. HTTPS-туннель для Mini App (в отдельном терминале)
+cloudflared tunnel --url http://localhost:8080
+# → скопировать URL вида https://random.trycloudflare.com
+
+# 3. Запуск бота
+export WEBAPP_URL="https://random.trycloudflare.com"
+export BOT_TOKEN="..."
+./gradlew run
 ```
 
-### Запуск через Docker
+### Запуск через Docker Compose
 
 ```bash
-# Создать .env файл с переменными выше, затем:
+# Создать .env с переменными выше, затем:
 docker compose up -d --build
 ```
+
+> Таблицы БД создаются автоматически при старте через `SchemaUtils.createMissingTablesAndColumns()` — безопасно для существующих данных.
+
+---
+
+## Архитектура
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         Telegram API                             │
+└───────────────────┬──────────────────────────┬───────────────────┘
+                    │ Bot polling               │ Mini App WebView
+                    ▼                           ▼
+         ┌─────────────────┐         ┌─────────────────────┐
+         │  MeventusBot    │         │   WebAppServer      │
+         │  (bot DSL)      │         │   (JDK HttpServer)  │
+         │                 │         │                     │
+         │ commands/       │         │ GET  /              │
+         │ callbacks/      │         │ GET  /api/events    │
+         │ handlers/       │         │ GET  /api/event     │
+         │ keyboards/      │         │ POST /api/join      │
+         │ states/         │         │ POST /api/leave     │
+         │ stats/          │         │ POST /api/event/update│
+         └────────┬────────┘         │ GET  /api/admin     │
+                  │                  │ GET  /api/stats     │
+                  │                  └──────────┬──────────┘
+                  │                             │
+                  └──────────┬──────────────────┘
+                             ▼
+              ┌──────────────────────────────┐
+              │         domain/              │
+              │  EventService                │
+              │  ParticipantService          │
+              │  UserService                 │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │      infrastructure/          │
+              │  EventRepositoryImpl         │
+              │  ParticipantRepositoryImpl   │
+              │  UserRepositoryImpl          │
+              │  DatabaseFactory (HikariCP)  │
+              └──────────────┬───────────────┘
+                             │
+              ┌──────────────▼───────────────┐
+              │         PostgreSQL            │
+              │  users / events / event_tags  │
+              │  participants                 │
+              └──────────────────────────────┘
+```
+
+**Принцип слоёв:**
+- `domain/` — чистая бизнес-логика. Не импортирует ни Telegram, ни Exposed.
+- `bot/` и `webapp/` — точки входа. Вызывают только сервисы из `domain/`.
+- `infrastructure/` — реализации репозиториев с SQL через Exposed.
+
+**Разделение сервисов:** `Application.kt` создаёт сервисы один раз и передаёт их и в `WebAppServer`, и в `MeventusBot` — оба слоя работают с одними объектами.
 
 ---
 
@@ -76,87 +146,93 @@ docker compose up -d --build
 ```
 src/main/kotlin/com/meventus/
 │
-├── Application.kt                    ← точка входа: запускает WebAppServer и бота
+├── Application.kt                     ← точка входа: init DB → WebAppServer → Bot
 │
 ├── config/
-│   ├── AppConfig.kt                  ← загружает все настройки из application.conf
-│   ├── BotConfig.kt                  ← token, username
-│   ├── DatabaseConfig.kt             ← jdbcUrl, username, password, maxPoolSize
-│   └── WebAppConfig.kt               ← port, url для Mini App
+│   ├── AppConfig.kt                   ← собирает все конфиги из application.conf
+│   ├── BotConfig.kt                   ← token, username
+│   ├── DatabaseConfig.kt              ← jdbcUrl, user, password, maxPoolSize
+│   └── WebAppConfig.kt                ← port, url
 │
 ├── bot/
-│   ├── MeventusBot.kt                ← регистрирует ВСЕ handlers и commands
+│   ├── MeventusBot.kt                 ← регистрирует все handlers/commands/callbacks,
+│   │                                     вызывает bot.setMyCommands(...)
+│   ├── commands/
+│   │   ├── Command.kt                 ← interface: name + register(Dispatcher)
+│   │   ├── StartCommand.kt            ← /start — регистрация + постоянная клавиатура
+│   │   ├── HelpCommand.kt             ← /help
+│   │   ├── CreateEventCommand.kt      ← /new — запускает FSM создания
+│   │   ├── ListEventsCommand.kt       ← /events — фильтр тегов → список
+│   │   ├── MyEventsCommand.kt         ← /my — создал + участвую
+│   │   ├── BroadcastCommand.kt        ← /broadcast — рассылка участникам
+│   │   └── StatsCommand.kt            ← /stats — кнопка открытия Mini App
 │   │
-│   ├── commands/                     ← каждый файл = одна /команда
-│   │   ├── Command.kt                ← интерфейс: name + register(dispatcher)
-│   │   ├── StartCommand.kt           ← /start
-│   │   ├── HelpCommand.kt            ← /help
-│   │   ├── CreateEventCommand.kt     ← /new  (запускает FSM)
-│   │   ├── ListEventsCommand.kt      ← /events (фильтр по тегам)
-│   │   ├── MyEventsCommand.kt        ← /my
-│   │   └── StatsCommand.kt           ← /stats (счётчик + кнопка Mini App)
+│   ├── callbacks/
+│   │   ├── CallbackHandler.kt         ← interface: prefix + register(Dispatcher)
+│   │   ├── EventDetailCallback.kt     ← "edetail:ID" — полная карточка события
+│   │   ├── JoinEventCallback.kt       ← "ejoin:ID"  — вступить (блокирует организатора)
+│   │   └── LeaveEventCallback.kt      ← "leave:ID"  — покинуть
 │   │
-│   ├── callbacks/                    ← обработчики нажатий inline-кнопок
-│   │   ├── CallbackHandler.kt        ← интерфейс: prefix + register(dispatcher)
-│   │   ├── JoinEventCallback.kt      ← prefix "ejoin:" — вступить в событие
-│   │   ├── LeaveEventCallback.kt     ← prefix "leave:" — покинуть событие
-│   │   └── EventDetailCallback.kt    ← prefix "edetail:" — полная карточка события
+│   ├── handlers/
+│   │   ├── EventCreateHandler.kt      ← FSM создания: text + photo + ctag: callbacks
+│   │   ├── BroadcastHandler.kt        ← FSM рассылки: bcast: callback + text
+│   │   └── MenuKeyboardHandler.kt     ← перехват нажатий кнопок постоянной клавиатуры
 │   │
 │   ├── keyboards/
-│   │   ├── MainMenuKeyboard.kt       ← нижняя ReplyKeyboard с основными кнопками
-│   │   └── EventKeyboard.kt          ← InlineKeyboard для карточки события
+│   │   ├── TagKeyboard.kt             ← InlineKeyboard тегов (создание + фильтр)
+│   │   ├── EventKeyboard.kt           ← InlineKeyboard карточки события
+│   │   └── MainMenuKeyboard.kt        ← ReplyKeyboard (нижние кнопки)
 │   │
 │   ├── states/
-│   │   ├── StateStorage.kt           ← интерфейс + InMemoryStateStorage (HashMap)
-│   │   └── UserState.kt              ← sealed interface со всеми состояниями FSM
+│   │   ├── UserState.kt               ← sealed interface со всеми состояниями FSM
+│   │   └── StateStorage.kt            ← interface + InMemoryStateStorage (HashMap)
 │   │
 │   ├── stats/
-│   │   └── StatsStorage.kt           ← ConcurrentHashMap: кол-во сообщений + частота слов
+│   │   └── StatsStorage.kt            ← ConcurrentHashMap: счётчик сообщений + топ-слово
 │   │
 │   └── messages/
-│       └── Messages.kt               ← строковые константы (тексты ответов бота)
+│       └── Messages.kt                ← строковые константы (тексты бота)
 │
-├── domain/                           ← бизнес-логика, НЕ зависит от Telegram и БД
+├── domain/
 │   ├── model/
-│   │   ├── User.kt                   ← data class: telegramId, username, firstName
-│   │   ├── Event.kt                  ← data class: см. раздел "База данных"
-│   │   ├── EventStatus.kt            ← enum: DRAFT, PUBLISHED, CANCELLED, FINISHED
-│   │   ├── EventTag.kt               ← enum: IT, SPORT, OUTDOORS, INDOORS
-│   │   └── Participant.kt            ← data class: eventId, userId, joinedAt, contributed
+│   │   ├── User.kt                    ← data class: telegramId, username, firstName, createdAt
+│   │   ├── Event.kt                   ← data class: все поля события
+│   │   ├── EventStatus.kt             ← enum: DRAFT, PUBLISHED, CANCELLED, FINISHED
+│   │   ├── EventTag.kt                ← enum: IT(bit=1), SPORT(bit=2), OUTDOORS(bit=4), INDOORS(bit=8)
+│   │   └── Participant.kt             ← data class: eventId, userId, joinedAt, contributed
 │   │
-│   ├── repository/                   ← только интерфейсы, без SQL
+│   ├── repository/                    ← только интерфейсы, без SQL
 │   │   ├── UserRepository.kt
 │   │   ├── EventRepository.kt
 │   │   └── ParticipantRepository.kt
 │   │
-│   └── service/                      ← use-case: оркестрируют репозитории
-│       ├── UserService.kt            ← registerIfAbsent
-│       ├── EventService.kt           ← create, listUpcoming, listByTags, listByOwner
-│       ├── ParticipantService.kt     ← join, leave, listByEvent, updateContribution
-│       └── NotificationService.kt   ← отправка уведомлений участникам
+│   └── service/
+│       ├── UserService.kt             ← registerIfAbsent
+│       ├── EventService.kt            ← create, findById, listUpcoming, listByTags,
+│       │                                 listByOwner, update, cancel
+│       └── ParticipantService.kt      ← join, leave, isParticipant, listByEvent,
+│                                         listEventsByUser, updateContribution
 │
 ├── infrastructure/
 │   ├── persistence/
-│   │   ├── DatabaseFactory.kt        ← HikariCP + SchemaUtils.create(все таблицы)
+│   │   ├── DatabaseFactory.kt         ← HikariCP pool + createMissingTablesAndColumns
 │   │   ├── tables/
 │   │   │   ├── UsersTable.kt
 │   │   │   ├── EventsTable.kt
-│   │   │   ├── EventTagsTable.kt     ← связь event ↔ теги (many-to-many)
-│   │   │   └── ParticipantsTable.kt
+│   │   │   ├── EventTagsTable.kt      ← PK(eventId, tag) — many-to-many
+│   │   │   └── ParticipantsTable.kt   ← PK(eventId, userId)
 │   │   └── repository/
 │   │       ├── UserRepositoryImpl.kt
-│   │       ├── EventRepositoryImpl.kt
-│   │       └── ParticipantRepositoryImpl.kt
+│   │       ├── EventRepositoryImpl.kt      ← save() — insert если id==0, update иначе
+│   │       └── ParticipantRepositoryImpl.kt ← findEventsByUser: JOIN + batch тегов (2 запроса)
 │   └── scheduler/
-│       └── ReminderScheduler.kt      ← фоновые напоминания участникам
+│       └── ReminderScheduler.kt       ← фоновые напоминания (заглушка)
 │
 ├── webapp/
-│   └── WebAppServer.kt               ← JDK HttpServer на WEBAPP_PORT
-│       ├── GET /                     → отдаёт webapp/index.html
-│       └── GET /api/stats?userId=X  → JSON {messageCount, topWord}
+│   └── WebAppServer.kt                ← JDK HttpServer, все REST-эндпоинты
 │
 └── util/
-    ├── DateUtils.kt                  ← parse/format дат (формат "dd.MM.yyyy HH:mm", МСК)
+    ├── DateUtils.kt                   ← parse/format дат ("dd.MM.yyyy HH:mm", UTC)
     └── extensions/
         └── StringExtensions.kt
 ```
@@ -165,7 +241,7 @@ src/main/kotlin/com/meventus/
 
 ## База данных
 
-Таблицы создаются автоматически при старте через `SchemaUtils.create()`.
+Таблицы создаются автоматически при старте. Существующие данные не затрагиваются.
 
 ### users
 | Колонка | Тип | Описание |
@@ -173,22 +249,22 @@ src/main/kotlin/com/meventus/
 | `telegram_id` | BIGINT PK | ID пользователя в Telegram |
 | `username` | VARCHAR(64) NULL | @username |
 | `first_name` | VARCHAR(128) | имя |
-| `created_at` | TIMESTAMP | дата регистрации |
+| `created_at` | TIMESTAMP | дата первого /start |
 
 ### events
 | Колонка | Тип | Описание |
 |---|---|---|
 | `id` | BIGSERIAL PK | — |
-| `owner_id` | BIGINT FK→users | организатор |
+| `owner_id` | BIGINT | telegram_id организатора |
 | `title` | VARCHAR(256) | название |
-| `short_description` | VARCHAR(512) | краткое описание (в списке) |
+| `short_description` | VARCHAR(512) | краткое описание (в карточке списка) |
 | `description` | TEXT | полное описание |
-| `photo_file_id` | VARCHAR(256) NULL | Telegram file_id фотографии |
-| `address` | VARCHAR(512) | адрес проведения |
-| `starts_at` | TIMESTAMP | дата и время |
+| `photo_file_id` | VARCHAR(256) NULL | Telegram file_id фото |
+| `address` | VARCHAR(512) | адрес |
+| `starts_at` | TIMESTAMP | дата и время начала |
 | `cost` | BIGINT | стоимость в рублях (0 = бесплатно) |
 | `status` | ENUM | DRAFT / PUBLISHED / CANCELLED / FINISHED |
-| `created_at` | TIMESTAMP | — |
+| `created_at` | TIMESTAMP | время создания |
 
 ### event_tags
 | Колонка | Тип | Описание |
@@ -196,24 +272,32 @@ src/main/kotlin/com/meventus/
 | `event_id` | BIGINT FK→events PK | — |
 | `tag` | ENUM PK | IT / SPORT / OUTDOORS / INDOORS |
 
-> Одно событие может иметь несколько тегов. Связь many-to-many через эту таблицу.
+Одно событие может иметь несколько тегов. Хранятся отдельными строками.
 
 ### participants
 | Колонка | Тип | Описание |
 |---|---|---|
 | `event_id` | BIGINT FK→events PK | — |
 | `user_id` | BIGINT FK→users PK | — |
-| `joined_at` | TIMESTAMP | когда вступил |
-| `contributed` | BIGINT | сколько скинул рублей (0 по умолчанию) |
+| `joined_at` | TIMESTAMP | момент записи |
+| `contributed` | BIGINT | взнос в рублях (по умолчанию 0) |
 
-### Схема связей
+### Связи
 
 ```
-users ──< events (owner_id)
-users ──< participants (user_id)
-events ──< participants (event_id)
-events ──< event_tags (event_id)
+users ──< events        (events.owner_id → users.telegram_id)
+events ──< event_tags   (event_tags.event_id → events.id)
+users ──< participants  (participants.user_id → users.telegram_id)
+events ──< participants (participants.event_id → events.id)
 ```
+
+### Производительность запросов
+
+`ParticipantRepositoryImpl.findEventsByUser` использует **2 запроса** вместо N+1:
+1. `JOIN participants + events` — получить все события пользователя
+2. Один `SELECT` по всем `event_id` из шага 1 — загрузить теги пакетом
+
+`isParticipant` использует `.limit(1)` — читает максимум одну строку по PRIMARY KEY.
 
 ---
 
@@ -221,115 +305,170 @@ events ──< event_tags (event_id)
 
 | Команда | Файл | Что делает |
 |---|---|---|
-| `/start` | `StartCommand.kt` | регистрирует пользователя в БД, показывает меню |
-| `/new` | `CreateEventCommand.kt` | запускает FSM создания события |
-| `/events` | `ListEventsCommand.kt` | показывает фильтр тегов, затем список событий |
-| `/my` | `MyEventsCommand.kt` | мои события (создал / участвую) |
-| `/stats` | `StatsCommand.kt` | кол-во сообщений, топ-слово, кнопка Mini App |
+| `/start` | `StartCommand.kt` | регистрирует пользователя, показывает постоянную клавиатуру |
+| `/new` | `CreateEventCommand.kt` | запускает 8-шаговый FSM создания мероприятия |
+| `/events` | `ListEventsCommand.kt` | фильтр по тегам через inline-кнопки, затем список |
+| `/my` | `MyEventsCommand.kt` | два раздела: "Организую" и "Участвую" |
+| `/broadcast` | `BroadcastCommand.kt` | выбор мероприятия для рассылки участникам |
+| `/stats` | `StatsCommand.kt` | кнопка открытия Mini App (только при HTTPS URL) |
 | `/help` | `HelpCommand.kt` | список команд |
+
+---
+
+## Постоянная клавиатура
+
+После `/start` внизу экрана появляется клавиатура с кнопками. Нажатие на кнопку отправляет текст, который перехватывает `MenuKeyboardHandler`:
+
+| Кнопка | Действие |
+|---|---|
+| 📋 Мероприятия | список ближайших событий (до 10) |
+| ⭐ Мои события | то же, что `/my` |
+| ➕ Создать событие | запускает FSM создания |
+| 📢 Рассылка | то же, что `/broadcast` |
+| 📊 Статистика | кнопка открытия Mini App |
+
+Клавиатура работает только в состоянии `Idle`. Если пользователь в середине FSM — кнопки игнорируются (чтобы не сломать диалог).
 
 ---
 
 ## Машина состояний (FSM)
 
-**Файлы:** `bot/states/UserState.kt`, `bot/states/StateStorage.kt`
+**Файлы:** `bot/states/UserState.kt`, `bot/handlers/EventCreateHandler.kt`, `bot/handlers/BroadcastHandler.kt`
 
-Каждый пользователь в каждый момент находится в одном состоянии. По умолчанию — `Idle`.
+Каждый пользователь находится ровно в одном состоянии. По умолчанию — `Idle`. Состояние хранится в памяти (`ConcurrentHashMap`) — сбрасывается при рестарте бота.
 
 ```
 UserState (sealed interface)
 │
-├── Idle                          ← обычный режим, нет активного диалога
+├── Idle
+│     ← обычный режим, кнопки клавиатуры активны
 │
-└── Состояния создания события (/new):
-    │
-    ├── AwaitingEventTitle
-    │     └── → AwaitingEventShortDesc(title)
-    │
-    ├── AwaitingEventShortDesc(title)
-    │     └── → AwaitingEventDescription(title, shortDesc)
-    │
-    ├── AwaitingEventDescription(title, shortDesc)
-    │     └── → AwaitingEventAddress(title, shortDesc, desc)
-    │
-    ├── AwaitingEventAddress(title, shortDesc, desc)
-    │     └── → AwaitingEventDate(title, shortDesc, desc, address)
-    │
-    ├── AwaitingEventDate(title, shortDesc, desc, address)
-    │     └── → AwaitingEventCost(title, shortDesc, desc, address, startsAt)
-    │
-    ├── AwaitingEventCost(title, shortDesc, desc, address, startsAt)
-    │     └── → AwaitingEventPhoto(title, shortDesc, desc, address, startsAt, cost)
-    │
-    ├── AwaitingEventPhoto(title, shortDesc, desc, address, startsAt, cost)
-    │     ├── пользователь прислал фото → photoFileId сохраняется
-    │     ├── пользователь написал /skip → photoFileId = null
-    │     └── → AwaitingEventTags(...все данные..., photoFileId, selectedTags=∅)
-    │
-    └── AwaitingEventTags(...все данные..., selectedTags: Set<EventTag>)
-          ├── пользователь кликает тег → selectedTags обновляется, клавиатура перерисовывается
-          └── пользователь кликает "Готово" → событие сохраняется, state → Idle
+├── ── FSM создания мероприятия (/new) ──────────────────────────────
+│
+├── AwaitingEventTitle
+│     пользователь вводит название
+│     └──→ AwaitingEventShortDesc(title)
+│
+├── AwaitingEventShortDesc(title)
+│     пользователь вводит краткое описание (1–2 строки, для карточки)
+│     └──→ AwaitingEventDescription(title, shortDesc)
+│
+├── AwaitingEventDescription(title, shortDesc)
+│     пользователь вводит полное описание
+│     └──→ AwaitingEventAddress(title, shortDesc, description)
+│
+├── AwaitingEventAddress(title, shortDesc, description)
+│     пользователь вводит адрес
+│     └──→ AwaitingEventDate(title, shortDesc, description, address)
+│
+├── AwaitingEventDate(title, shortDesc, description, address)
+│     пользователь вводит дату в формате "ДД.ММ.ГГГГ ЧЧ:ММ"
+│     при ошибке формата — повторный запрос
+│     └──→ AwaitingEventCost(title, shortDesc, description, address, startsAt)
+│
+├── AwaitingEventCost(title, shortDesc, description, address, startsAt)
+│     пользователь вводит стоимость (целое ≥ 0, 0 = бесплатно)
+│     └──→ AwaitingEventPhoto(title, shortDesc, description, address, startsAt, cost)
+│
+├── AwaitingEventPhoto(title, shortDesc, description, address, startsAt, cost)
+│     пользователь отправляет фото или пишет "пропустить"
+│     └──→ AwaitingEventTags(...все данные..., photoFileId?, selectedTags=∅)
+│
+├── AwaitingEventTags(...все данные..., selectedTags: Set<EventTag>)
+│     inline-кнопки тегов (callback "ctag:BITMASK") переключают теги
+│     кнопка "Готово" (callback "ctag_done:BITMASK") → сохраняет событие → Idle
+│
+└── ── FSM рассылки (/broadcast) ────────────────────────────────────
+│
+└── AwaitingBroadcast(eventId: Long)
+      пользователь выбрал мероприятие (callback "bcast:ID")
+      вводит текст сообщения
+      бот отправляет его всем участникам через sendMessage(userId)
+      └──→ Idle
 ```
 
-**Как работает:**
+**Поток обработки текста:**
 
 ```
-Пользователь пишет текст
-        ↓
-text { } в MeventusBot.kt
-        ↓
-EventCreateHandler проверяет stateStorage.get(userId)
-        ↓
-  Idle?  → только записать в StatsStorage, игнорировать
-  Awaiting*? → обработать шаг, перейти к следующему состоянию
+Telegram → text { } в MeventusBot (записывает StatsStorage)
+         → MenuKeyboardHandler.text { } (проверяет Idle + текст кнопки)
+         → EventCreateHandler.text { } (when по состоянию)
+         → BroadcastHandler.text { } (проверяет AwaitingBroadcast)
 ```
 
-**Хранение состояния:** в памяти (`ConcurrentHashMap`). При перезапуске бота незавершённые диалоги сбрасываются.
+Все `text { }` хэндлеры регистрируются и вызываются последовательно. Каждый проверяет состояние сам и делает `return@text` если не его очередь.
 
 ---
 
-## Inline-callbacks (кнопки)
+## Inline-callbacks
 
 Формат callback data: `prefix:данные`
 
 | Prefix | Файл | Действие |
 |---|---|---|
-| `edetail:` | `EventDetailCallback.kt` | показать полную карточку события. Данные: `eventId` |
-| `ejoin:` | `JoinEventCallback.kt` | вступить в событие. Данные: `eventId` |
-| `leave:` | `LeaveEventCallback.kt` | покинуть событие. Данные: `eventId` |
-| `etag:` | внутри FSM тегов | переключить тег при создании. Данные: `TAG:BITMASK` |
-| `etag_done:` | внутри FSM тегов | подтвердить теги. Данные: `BITMASK` |
-| `filter:` | `ListEventsCommand` / callback | переключить тег в фильтре поиска. Данные: `TAG:BITMASK` |
-| `filter_search:` | `ListEventsCommand` / callback | найти события. Данные: `BITMASK` |
+| `edetail:ID` | `EventDetailCallback.kt` | полная карточка события (текст или фото) |
+| `ejoin:ID` | `JoinEventCallback.kt` | вступить; организатор заблокирован |
+| `leave:ID` | `LeaveEventCallback.kt` | покинуть мероприятие |
+| `ctag:BITMASK` | `EventCreateHandler.kt` | переключить тег при создании события |
+| `ctag_done:BITMASK` | `EventCreateHandler.kt` | подтвердить теги → создать событие |
+| `filter:BITMASK` | `ListEventsCommand.kt` | переключить тег в фильтре `/events` |
+| `fsearch:BITMASK` | `ListEventsCommand.kt` | показать отфильтрованные события |
+| `bcast:ID` | `BroadcastHandler.kt` | выбрать мероприятие для рассылки |
 
-**BITMASK** — число 0–15, где каждый бит = тег:
-```
-bit 0 (1)  = IT
-bit 1 (2)  = SPORT
-bit 2 (4)  = OUTDOORS
-bit 3 (8)  = INDOORS
+**Bitmask тегов** — число 0–15, кодирует любой набор тегов в одном числе:
 
-Пример: IT + SPORT = 1 + 2 = 3
 ```
+IT       = 1  (бит 0)
+SPORT    = 2  (бит 1)
+OUTDOORS = 4  (бит 2)
+INDOORS  = 8  (бит 3)
+
+IT + OUTDOORS = 1 + 4 = 5
+```
+
+Это позволяет хранить весь текущий набор выбранных тегов прямо в callback data кнопки — без дополнительного хранилища состояния.
 
 ---
 
-## Мини-приложение (WebApp)
+## Mini App (WebApp)
 
 **Файлы:** `webapp/WebAppServer.kt`, `resources/webapp/index.html`
 
-Запускается на `WEBAPP_PORT` (по умолчанию 8080) при старте приложения.
+Запускается как отдельный HTTP-сервер на `WEBAPP_PORT` (по умолчанию 8080). Требует HTTPS-URL для открытия из Telegram — при локальной разработке используется Cloudflare Tunnel.
 
-| Endpoint | Описание |
+### REST API
+
+| Метод | Путь | Параметры | Описание |
+|---|---|---|---|
+| GET | `/` | — | HTML страница Mini App |
+| GET | `/api/events` | `userId`, `tags` (bitmask), `search` | список предстоящих событий с признаком участия |
+| GET | `/api/event` | `id`, `userId` | полные данные события + статистика взносов |
+| POST | `/api/join` | body: `eventId`, `userId` | записаться на мероприятие |
+| POST | `/api/leave` | body: `eventId`, `userId` | отказаться от участия |
+| POST | `/api/event/update` | body: все поля события | изменить мероприятие (только организатор) |
+| GET | `/api/admin` | `userId` | события пользователя как организатора + статистика |
+| GET | `/api/stats` | `userId` | счётчик сообщений и топ-слово |
+
+Все endpoints возвращают JSON. CORS-заголовки добавлены для работы из WebView.
+
+### Защита
+
+- `/api/join` — блокирует организатора (возвращает `{"ok":false,"error":"owner cannot join own event"}`)
+- `/api/event/update` — проверяет что `userId == event.ownerId`, иначе 403-подобный ответ
+
+### Вкладки Mini App
+
+| Вкладка | Содержимое |
 |---|---|
-| `GET /` | HTML страница Mini App |
-| `GET /api/stats?userId=123` | JSON: `{"messageCount": 42, "topWord": "привет"}` |
+| **EVENTS** | поиск по тексту + фильтр по тегам + карточки событий + кнопка "Участвовать / Покинуть" |
+| **MINE** | события где пользователь участник или организатор |
+| **ADMIN** | сводная статистика организатора + карточки с кнопками "Детали" и "Изменить" |
 
-**Как открывается:** команда `/stats` отправляет сообщение с кнопкой типа `web_app`. Кнопка появляется только если `WEBAPP_URL` начинается с `https://`.
+### Форма редактирования (ADMIN)
 
-**Данные пользователя:** страница читает `Telegram.WebApp.initDataUnsafe.user.id` и запрашивает `/api/stats?userId=<id>`.
-
-**Изменить вёрстку:** `src/main/resources/webapp/index.html` — обычный HTML/CSS/JS.
+Клик на "✏ ИЗМЕНИТЬ" открывает overlay с предзаполненными полями:
+- название, краткое / полное описание, адрес, дата/время, стоимость, теги
+- `POST /api/event/update` — сохранение, после успеха панель обновляется
 
 ---
 
@@ -351,40 +490,39 @@ webapp {
 }
 
 database {
-    jdbcUrl    = "jdbc:postgresql://localhost:5432/meventus"
-    jdbcUrl    = ${?DATABASE_URL}
-    username   = "meventus"
-    username   = ${?DATABASE_USER}
-    password   = "meventus"
-    password   = ${?DATABASE_PASSWORD}
+    jdbcUrl     = "jdbc:postgresql://localhost:5432/meventus"
+    jdbcUrl     = ${?DATABASE_URL}
+    username    = "meventus"
+    username    = ${?DATABASE_USER}
+    password    = "meventus"
+    password    = ${?DATABASE_PASSWORD}
     maxPoolSize = 10
 }
 ```
 
-Значения из `${?VAR}` переопределяют дефолт если переменная окружения задана.
+`${?VAR}` — значение из переменной окружения переопределяет дефолт только если она задана.
 
 ---
 
 ## Деплой
 
-Деплой настроен через GitHub Actions (`.github/workflows/deploy.yml`).
+Настроен через GitHub Actions (`.github/workflows/deploy.yml`).
 
 **Триггер:** push или merge в ветку `main`.
 
-**Процесс:**
-1. GitHub Actions подключается по SSH к VPS
-2. На VPS в `/opt/myapp` делает `git pull origin main`
-3. Запускает `docker compose up -d --build`
+**Процесс на CI:**
+1. Подключиться по SSH к VPS
+2. `git pull origin main` в `/opt/myapp`
+3. `docker compose up -d --build`
 
-**Что нужно на VPS:**
+### Подготовка VPS
 
 ```bash
-# 1. Создать папку и склонировать репо
 mkdir -p /opt/myapp
 cd /opt/myapp
 git clone https://github.com/SeverL626/TBankHackItOn.git .
 
-# 2. Создать .env файл (НЕ коммитить в git!)
+# .env — НЕ коммитить в git
 cat > /opt/myapp/.env << EOF
 BOT_TOKEN=...
 BOT_USERNAME=...
@@ -393,61 +531,93 @@ DATABASE_USER=meventus
 DATABASE_PASSWORD=meventus
 WEBAPP_URL=https://your-domain.com
 EOF
-
-# 3. Добавить GitHub secrets в настройках репо:
-#    VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_SSH_PORT
 ```
 
-**Секреты GitHub Actions:**
+### Secrets в GitHub
 
 | Secret | Значение |
 |---|---|
 | `VPS_HOST` | IP или домен сервера |
 | `VPS_USER` | пользователь SSH |
-| `VPS_SSH_KEY` | приватный SSH ключ |
+| `VPS_SSH_KEY` | приватный SSH-ключ |
 | `VPS_SSH_PORT` | порт SSH (обычно 22) |
 
 ---
 
 ## Как расширять
 
-### Добавить новую команду
+### Добавить команду
 
-1. Создать `bot/commands/MyCommand.kt`:
 ```kotlin
+// 1. bot/commands/MyCommand.kt
 class MyCommand : Command {
-    override val name = "mycommand"
+    override val name = "mycmd"
     override fun register(dispatcher: Dispatcher) {
         dispatcher.command(name) { /* ... */ }
     }
 }
+
+// 2. MeventusBot.kt — добавить в dispatch { }
+MyCommand().register(this)
+
+// 3. MeventusBot.kt — добавить в bot.setMyCommands(...)
+BotCommand("mycmd", "Описание команды"),
 ```
-2. Зарегистрировать в `MeventusBot.kt`: `MyCommand().register(this)`
 
-### Добавить новый inline-callback
+### Добавить inline-callback
 
-1. Создать `bot/callbacks/MyCallback.kt`, реализовать `CallbackHandler`
-2. Придумать уникальный prefix (например `"myaction:"`)
-3. Зарегистрировать в `MeventusBot.kt`
+```kotlin
+// 1. bot/callbacks/MyCallback.kt
+class MyCallback : CallbackHandler {
+    override val prefix = "myaction:"
+    override fun register(dispatcher: Dispatcher) {
+        dispatcher.callbackQuery {
+            val data = callbackQuery.data ?: return@callbackQuery
+            if (!data.startsWith(prefix)) return@callbackQuery
+            val id = data.removePrefix(prefix).toLongOrNull() ?: return@callbackQuery
+            // ...
+        }
+    }
+}
 
-### Добавить новую сущность в БД
+// 2. MeventusBot.kt
+MyCallback().register(this)
+```
 
-1. Модель → `domain/model/MyEntity.kt`
-2. Интерфейс → `domain/repository/MyRepository.kt`
-3. Таблица Exposed → `infrastructure/persistence/tables/MyTable.kt`
-4. Реализация → `infrastructure/persistence/repository/MyRepositoryImpl.kt`
-5. Сервис → `domain/service/MyService.kt`
-6. Добавить таблицу в `DatabaseFactory.kt`: `SchemaUtils.create(..., MyTable)`
+### Добавить сущность в БД
 
-### Добавить шаг в FSM создания события
+1. `domain/model/MyEntity.kt` — data class
+2. `domain/repository/MyRepository.kt` — интерфейс
+3. `infrastructure/persistence/tables/MyTable.kt` — Exposed Table
+4. `infrastructure/persistence/repository/MyRepositoryImpl.kt`
+5. `domain/service/MyService.kt`
+6. `DatabaseFactory.kt` — добавить в `SchemaUtils.createMissingTablesAndColumns(..., MyTable)`
 
-1. Добавить новый `data class AwaitingMyStep(...)` в `UserState.kt`
-2. В `EventCreateHandler.kt` добавить ветку `is UserState.AwaitingMyStep → ...`
+### Добавить шаг в FSM
 
-### Изменить тексты бота
+```kotlin
+// UserState.kt
+data class AwaitingMyStep(val prev: String) : UserState
 
-Все строки в `bot/messages/Messages.kt`.
+// EventCreateHandler.kt — добавить ветку в when
+is UserState.AwaitingMyStep -> {
+    stateStorage.set(userId, UserState.NextStep(state.prev, text))
+    bot.sendMessage(chatId, "Следующий шаг:")
+}
+```
 
-### Изменить мини-приложение
+### Добавить API-эндпоинт в Mini App
 
-Только `src/main/resources/webapp/index.html`. После изменения — перезапуск (`./gradlew run`).
+```kotlin
+// WebAppServer.kt — добавить до server.executor = null
+server.createContext("/api/myendpoint") { exchange ->
+    val params = parseQuery(exchange.requestURI.query)
+    // ...
+    sendJson(exchange, """{"result": "..."}""")
+}
+```
+
+### Изменить Mini App вёрстку
+
+Только `src/main/resources/webapp/index.html`. Чистый HTML/CSS/JS, без сборщиков.
+После изменения — перезапуск (`./gradlew run`).
