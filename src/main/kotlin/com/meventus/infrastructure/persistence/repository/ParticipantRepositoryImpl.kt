@@ -3,12 +3,14 @@ package com.meventus.infrastructure.persistence.repository
 import com.meventus.domain.model.Event
 import com.meventus.domain.model.EventTag
 import com.meventus.domain.model.Participant
+import com.meventus.domain.model.PaymentStatus
 import com.meventus.domain.repository.ParticipantRepository
 import com.meventus.infrastructure.persistence.tables.EventTagsTable
 import com.meventus.infrastructure.persistence.tables.EventsTable
 import com.meventus.infrastructure.persistence.tables.ParticipantsTable
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
@@ -25,6 +27,9 @@ class ParticipantRepositoryImpl : ParticipantRepository {
             it[userId] = participant.userId
             it[joinedAt] = participant.joinedAt
             it[contributed] = participant.contributed
+            it[paymentStatus] = participant.paymentStatus
+            it[payerPhone] = participant.payerPhone
+            it[payerName] = participant.payerName
         }
         participant
     }
@@ -42,9 +47,16 @@ class ParticipantRepositoryImpl : ParticipantRepository {
             .map { toParticipant(it) }
     }
 
-    // O(1) запрос — JOIN + один проход по тегам вместо N запросов
+    override fun findParticipant(eventId: Long, userId: Long): Participant? = transaction {
+        ParticipantsTable.selectAll()
+            .where { (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId) }
+            .limit(1)
+            .firstOrNull()
+            ?.let { toParticipant(it) }
+    }
+
+    // 2 queries total: JOIN for events, batch select for tags
     override fun findEventsByUser(userId: Long): List<Event> = transaction {
-        // Шаг 1: один JOIN — получаем все события пользователя
         val rows = (ParticipantsTable innerJoin EventsTable)
             .selectAll()
             .where { ParticipantsTable.userId eq userId }
@@ -52,7 +64,6 @@ class ParticipantRepositoryImpl : ParticipantRepository {
 
         if (rows.isEmpty()) return@transaction emptyList()
 
-        // Шаг 2: один запрос — загружаем теги для всех найденных событий
         val eventIds = rows.map { it[EventsTable.id].value }.toSet()
         val tagMap: Map<Long, Set<EventTag>> = EventTagsTable
             .selectAll()
@@ -66,7 +77,6 @@ class ParticipantRepositoryImpl : ParticipantRepository {
         }
     }
 
-    // O(log N) — использует PRIMARY KEY (eventId, userId), не читает лишние строки
     override fun isParticipant(eventId: Long, userId: Long): Boolean = transaction {
         ParticipantsTable.selectAll()
             .where { (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId) }
@@ -83,11 +93,24 @@ class ParticipantRepositoryImpl : ParticipantRepository {
         Unit
     }
 
+    override fun updatePaymentStatus(eventId: Long, userId: Long, status: PaymentStatus, contributed: Long?) = transaction {
+        ParticipantsTable.update({
+            (ParticipantsTable.eventId eq eventId) and (ParticipantsTable.userId eq userId)
+        }) {
+            it[paymentStatus] = status
+            if (contributed != null) it[ParticipantsTable.contributed] = contributed
+        }
+        Unit
+    }
+
     private fun toParticipant(row: ResultRow) = Participant(
         eventId = row[ParticipantsTable.eventId],
         userId = row[ParticipantsTable.userId],
         joinedAt = row[ParticipantsTable.joinedAt],
         contributed = row[ParticipantsTable.contributed],
+        paymentStatus = row[ParticipantsTable.paymentStatus],
+        payerPhone = row[ParticipantsTable.payerPhone],
+        payerName = row[ParticipantsTable.payerName],
     )
 
     private fun toEvent(row: ResultRow, tags: Set<EventTag>) = Event(
@@ -103,5 +126,8 @@ class ParticipantRepositoryImpl : ParticipantRepository {
         cost = row[EventsTable.cost],
         status = row[EventsTable.status],
         createdAt = row[EventsTable.createdAt],
+        paymentType = row[EventsTable.paymentType],
+        sbpPhone = row[EventsTable.sbpPhone],
+        sbpName = row[EventsTable.sbpName],
     )
 }

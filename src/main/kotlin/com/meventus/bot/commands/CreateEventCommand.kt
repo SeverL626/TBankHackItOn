@@ -15,7 +15,7 @@ class CreateEventCommand(private val stateStorage: StateStorage) : Command {
             stateStorage.set(userId, UserState.AwaitingEventTitle)
             bot.sendMessage(
                 chatId = ChatId.fromId(message.chat.id),
-                text = "Создаём мероприятие!\n\nШаг 1/7 — Введите *название*:",
+                text = "Создаём мероприятие! _/cancel — отменить в любой момент_\n\nШаг 1/7 — Введите *название*:",
                 parseMode = com.github.kotlintelegrambot.entities.ParseMode.MARKDOWN,
             )
         }
