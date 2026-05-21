@@ -5,3 +5,10 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - BOT_USERNAME=${BOT_USERNAME}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - WEBAPP_URL=${WEBAPP_URL}

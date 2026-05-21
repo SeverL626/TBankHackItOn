@@ -19,3 +19,5 @@ src/main/resources/application-local.conf
 
 *.DS_Store
 Thumbs.db
+run.sh
+.env
