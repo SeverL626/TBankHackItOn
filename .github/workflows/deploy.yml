@@ -41,7 +41,7 @@ jobs:
           ssh -p "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p /opt/myapp"
 
           scp -P "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key \
-            meventus.tar.gz docker-compose.yml Dockerfile.runtime .env.example \
+            meventus.tar.gz docker-compose.yml Dockerfile.runtime Caddyfile .env.example \
             "$VPS_USER@$VPS_HOST:/opt/myapp/"
 
           ssh -p "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" << 'EOF'
