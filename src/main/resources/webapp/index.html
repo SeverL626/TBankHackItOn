@@ -243,7 +243,7 @@
       <input class="field-input" id="editAddress" placeholder="Адрес проведения">
     </div>
     <div>
-      <div class="field-label">// ДАТА И ВРЕМЯ (UTC)</div>
+      <div class="field-label">// ДАТА И ВРЕМЯ</div>
       <input class="field-input" id="editStartsAt" type="datetime-local">
     </div>
     <div>
@@ -276,10 +276,17 @@
     tg.setHeaderColor('#0d0d1a');
   }
 
+  const initData = (tg && tg.initData) || '';
   const userId = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0;
   const userName = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.first_name) || 'GUEST';
 
   document.getElementById('userBadge').textContent = 'USER: ' + userName.toUpperCase();
+
+  function authHeaders(extra) {
+    var headers = extra || {};
+    if (initData) headers['X-Telegram-Init-Data'] = initData;
+    return headers;
+  }
 
   const TAGS = [
     { name: 'IT', label: '💻 IT', bit: 1 },
@@ -335,7 +342,7 @@
   function loadEvents() {
     var tags = tagBitmask();
     document.getElementById('eventList').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
-    fetch('/api/events?userId=' + userId + '&tags=' + tags)
+    fetch('/api/events?tags=' + tags, { headers: authHeaders() })
       .then(function(r) { return r.json(); })
       .then(function(data) { allEvents = data; filterLocal(); })
       .catch(function() { document.getElementById('eventList').innerHTML = '<div class="empty">⚠ CONNECTION FAILED</div>'; });
@@ -368,7 +375,7 @@
   function openDetail(id) {
     document.getElementById('detailBody').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
     document.getElementById('detailOverlay').classList.add('open');
-    fetch('/api/event?id=' + id + '&userId=' + userId)
+    fetch('/api/event?id=' + id, { headers: authHeaders() })
       .then(function(r) { return r.json(); })
       .then(function(e) { renderDetail(e); })
       .catch(function() { document.getElementById('detailBody').innerHTML = '<div class="empty">⚠ LOAD ERROR</div>'; });
@@ -419,7 +426,7 @@
   }
 
   function joinEvent(eventId) {
-    fetch('/api/join', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'eventId=' + eventId + '&userId=' + userId })
+    fetch('/api/join', { method: 'POST', headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}), body: 'eventId=' + eventId })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.ok && data.paymentRequired) {
@@ -433,7 +440,7 @@
   }
 
   function leaveEvent(eventId) {
-    fetch('/api/leave', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'eventId=' + eventId + '&userId=' + userId })
+    fetch('/api/leave', { method: 'POST', headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}), body: 'eventId=' + eventId })
       .then(function() { openDetail(eventId); });
   }
 
@@ -443,7 +450,7 @@
       return;
     }
     document.getElementById('mineList').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
-    fetch('/api/events?userId=' + userId)
+    fetch('/api/events', { headers: authHeaders() })
       .then(function(r) { return r.json(); })
       .then(function(all) {
         var mine = all.filter(function(e) { return e.isParticipant || e.ownerId == userId; });
@@ -459,7 +466,7 @@
       return;
     }
     document.getElementById('adminPanel').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
-    fetch('/api/admin?userId=' + userId)
+    fetch('/api/admin', { headers: authHeaders() })
       .then(function(r) { return r.json(); })
       .then(function(events) {
         if (!events || !events.length) {
@@ -521,7 +528,7 @@
   // ── Edit functions ────────────────────────────────────────────────────────
   function openEdit(id, ev) {
     if (ev) ev.stopPropagation();
-    fetch('/api/event?id=' + id + '&userId=' + userId)
+    fetch('/api/event?id=' + id, { headers: authHeaders() })
       .then(function(r) { return r.json(); })
       .then(function(e) { populateEditForm(e); document.getElementById('editOverlay').classList.add('open'); })
       .catch(function() { alert('Ошибка загрузки данных'); });
@@ -536,10 +543,10 @@
     document.getElementById('editCost').value = e.cost || 0;
     document.getElementById('editMsg').textContent = '';
 
-    // datetime-local expects "YYYY-MM-DDTHH:MM"
+    // datetime-local expects "YYYY-MM-DDTHH:MM" in the user's local timezone.
     var d = new Date(e.startsAt);
     var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
-    var local = d.getUTCFullYear() + '-' + pad(d.getUTCMonth()+1) + '-' + pad(d.getUTCDate()) + 'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+    var local = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
     document.getElementById('editStartsAt').value = local;
 
     // set tag checkboxes — bits: IT=1, SPORT=2, OUTDOORS=4, INDOORS=8
@@ -572,7 +579,6 @@
     document.getElementById('editMsg').style.color = 'var(--text-dim)';
 
     var body = 'id=' + encodeURIComponent(id) +
-      '&userId=' + encodeURIComponent(userId) +
       '&title=' + encodeURIComponent(title) +
       '&shortDescription=' + encodeURIComponent(shortDesc) +
       '&description=' + encodeURIComponent(desc) +
@@ -581,7 +587,7 @@
       '&cost=' + encodeURIComponent(cost) +
       '&tags=' + tagBitmask;
 
-    fetch('/api/event/update', { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: body })
+    fetch('/api/event/update', { method: 'POST', headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}), body: body })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.ok) {

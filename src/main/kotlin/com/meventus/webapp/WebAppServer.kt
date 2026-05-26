@@ -9,12 +9,14 @@ import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.net.URL
 import java.time.LocalDateTime
-import java.time.ZoneOffset
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 object WebAppServer {
 
+    private val moscowZone = ZoneId.of("Europe/Moscow")
     private val dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'")
         .withZone(ZoneId.of("UTC"))
 
@@ -33,18 +35,18 @@ object WebAppServer {
         }
 
         server.createContext("/api/stats") { exchange ->
-            val params = parseQuery(exchange.requestURI.query)
-            val userId = params["userId"]?.toLongOrNull() ?: 0L
+            if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
+            val userId = authenticate(exchange)?.id ?: 0L
             val stats = StatsStorage.get(userId)
-            val topWordJson = if (stats.topWord != null) "\"${stats.topWord}\"" else "null"
+            val topWordJson = stats.topWord?.jsonStr() ?: "null"
             sendJson(exchange, """{"messageCount":${stats.messageCount},"topWord":$topWordJson}""")
         }
 
-        // GET /api/events?userId=X&tags=N&search=text
+        // GET /api/events?tags=N&search=text
         server.createContext("/api/events") { exchange ->
             if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
             val params = parseQuery(exchange.requestURI.query)
-            val userId = params["userId"]?.toLongOrNull() ?: 0L
+            val userId = authenticate(exchange)?.id ?: 0L
             val tagBitmask = params["tags"]?.toIntOrNull() ?: 0
             val search = params["search"]?.lowercase() ?: ""
 
@@ -73,12 +75,12 @@ object WebAppServer {
             sendJson(exchange, json)
         }
 
-        // GET /api/event?id=X&userId=X
+        // GET /api/event?id=X
         server.createContext("/api/event") { exchange ->
             if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
             val params = parseQuery(exchange.requestURI.query)
             val id = params["id"]?.toLongOrNull() ?: run { send404(exchange); return@createContext }
-            val userId = params["userId"]?.toLongOrNull() ?: 0L
+            val userId = authenticate(exchange)?.id ?: 0L
             val event = eventService.findById(id) ?: run { send404(exchange); return@createContext }
             val isParticipant = userId > 0 && participantService.isParticipant(id, userId)
             val participants = participantService.listByEvent(id)
@@ -89,13 +91,13 @@ object WebAppServer {
             sendJson(exchange, json)
         }
 
-        // POST /api/join  body: eventId=X&userId=X
+        // POST /api/join  body: eventId=X
         server.createContext("/api/join") { exchange ->
             if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
             val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             val params = parseQuery(body)
             val eventId = params["eventId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad eventId"); return@createContext }
-            val userId = params["userId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad userId"); return@createContext }
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
             val event = eventService.findById(eventId)
             if (event != null && event.ownerId == userId) {
                 sendJson(exchange, """{"ok":false,"error":"owner cannot join own event"}""")
@@ -117,13 +119,13 @@ object WebAppServer {
             sendJson(exchange, """{"ok":true}""")
         }
 
-        // POST /api/leave  body: eventId=X&userId=X
+        // POST /api/leave  body: eventId=X
         server.createContext("/api/leave") { exchange ->
             if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
             val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             val params = parseQuery(body)
             val eventId = params["eventId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad eventId"); return@createContext }
-            val userId = params["userId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad userId"); return@createContext }
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
             participantService.leave(eventId, userId)
             sendJson(exchange, """{"ok":true}""")
         }
@@ -131,8 +133,7 @@ object WebAppServer {
         // GET /api/admin?userId=X — events owned by user with participant + contribution stats
         server.createContext("/api/admin") { exchange ->
             if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
-            val params = parseQuery(exchange.requestURI.query)
-            val userId = params["userId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad userId"); return@createContext }
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
             val events = eventService.listByOwner(userId)
             val json = buildString {
                 append("[")
@@ -148,13 +149,13 @@ object WebAppServer {
             sendJson(exchange, json)
         }
 
-        // POST /api/event/update  body: id=X&userId=X&title=...&shortDescription=...&description=...&address=...&startsAt=YYYY-MM-DDTHH:MM&cost=N&tags=N
+        // POST /api/event/update  body: id=X&title=...&shortDescription=...&description=...&address=...&startsAt=YYYY-MM-DDTHH:MM&cost=N&tags=N
         server.createContext("/api/event/update") { exchange ->
             if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
             val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             val params = parseQuery(body)
             val id = params["id"]?.toLongOrNull() ?: run { sendErr(exchange, "bad id"); return@createContext }
-            val userId = params["userId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad userId"); return@createContext }
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
             val title = params["title"]?.takeIf { it.isNotBlank() } ?: run { sendErr(exchange, "bad title"); return@createContext }
             val shortDescription = params["shortDescription"] ?: ""
             val description = params["description"] ?: ""
@@ -165,9 +166,9 @@ object WebAppServer {
             val tags = EventTag.entries.filter { tagBitmask and it.bit != 0 }.toSet()
 
             val startsAt = runCatching {
-                // accepts "YYYY-MM-DDTHH:MM" from datetime-local input
+                // datetime-local has no zone; Mini App displays and edits dates in Moscow time.
                 val ldt = LocalDateTime.parse(startsAtStr.take(16), DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
-                ldt.toInstant(ZoneOffset.UTC)
+                ldt.atZone(moscowZone).toInstant()
             }.getOrNull() ?: run { sendErr(exchange, "bad startsAt format"); return@createContext }
 
             val updated = eventService.update(id, userId, title, shortDescription, description, address, startsAt, cost, tags)
@@ -224,6 +225,14 @@ object WebAppServer {
         sendJson(exchange, """{"ok":false,"error":"$msg"}""")
     }
 
+    private fun sendUnauthorized(exchange: HttpExchange) {
+        val bytes = """{"ok":false,"error":"unauthorized"}""".toByteArray()
+        exchange.responseHeaders.set("Content-Type", "application/json; charset=utf-8")
+        exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+        exchange.sendResponseHeaders(401, bytes.size.toLong())
+        exchange.responseBody.use { it.write(bytes) }
+    }
+
     private fun send404(exchange: HttpExchange) {
         val bytes = "Not found".toByteArray()
         exchange.sendResponseHeaders(404, bytes.size.toLong())
@@ -233,7 +242,7 @@ object WebAppServer {
     private fun sendCors(exchange: HttpExchange) {
         exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
         exchange.responseHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        exchange.responseHeaders.set("Access-Control-Allow-Headers", "Content-Type")
+        exchange.responseHeaders.set("Access-Control-Allow-Headers", "Content-Type, X-Telegram-Init-Data")
         exchange.sendResponseHeaders(204, -1)
     }
 
@@ -244,6 +253,57 @@ object WebAppServer {
             if (replyMarkup != null) urlStr += "&reply_markup=${java.net.URLEncoder.encode(replyMarkup, "UTF-8")}"
             URL(urlStr).readText()
         }
+    }
+
+    private data class AuthUser(val id: Long)
+
+    private fun authenticate(exchange: HttpExchange): AuthUser? {
+        val initData = exchange.requestHeaders.getFirst("X-Telegram-Init-Data")
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val params = parseQuery(initData)
+        val receivedHash = params["hash"] ?: return null
+
+        val dataCheckString = params
+            .filterKeys { it != "hash" }
+            .toSortedMap()
+            .entries
+            .joinToString("\n") { (key, value) -> "$key=$value" }
+
+        val secretKey = hmacSha256("WebAppData".toByteArray(Charsets.UTF_8), botToken)
+        val calculatedHash = hmacSha256(secretKey, dataCheckString).toHex()
+        if (!constantTimeEquals(calculatedHash, receivedHash)) return null
+
+        val userJson = params["user"] ?: return null
+        val userId = """"id"\s*:\s*(\d+)""".toRegex()
+            .find(userJson)
+            ?.groupValues
+            ?.get(1)
+            ?.toLongOrNull()
+            ?: return null
+
+        return AuthUser(userId)
+    }
+
+    private fun hmacSha256(key: ByteArray, data: String): ByteArray =
+        hmacSha256(key, data.toByteArray(Charsets.UTF_8))
+
+    private fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(data)
+    }
+
+    private fun ByteArray.toHex(): String =
+        joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun constantTimeEquals(left: String, right: String): Boolean {
+        if (left.length != right.length) return false
+        var result = 0
+        for (i in left.indices) {
+            result = result or (left[i].code xor right[i].code)
+        }
+        return result == 0
     }
 
     private fun parseQuery(query: String?): Map<String, String> =
