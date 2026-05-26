@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -29,34 +30,106 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          BOT_USERNAME: ${{ secrets.BOT_USERNAME }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          WEBAPP_HOST: ${{ secrets.WEBAPP_HOST }}
+          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
         run: |
+          set -euo pipefail
+
+          : "${VPS_HOST:?VPS_HOST secret is required}"
+          : "${VPS_USER:=root}"
+          : "${VPS_SSH_PORT:=22}"
+          : "${BOT_TOKEN:?BOT_TOKEN secret is required}"
+          : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD secret is required}"
+
+          POSTGRES_DB="${POSTGRES_DB:-meventus}"
+          POSTGRES_USER="${POSTGRES_USER:-meventus}"
+          WEBAPP_HOST="${WEBAPP_HOST:-${VPS_HOST}.sslip.io}"
+          WEBAPP_URL="${WEBAPP_URL:-https://${WEBAPP_HOST}}"
+
           mkdir -p ~/.ssh
-          echo "$VPS_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
 
-          ssh-keyscan -p "${VPS_SSH_PORT:-22}" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+          if [ -n "${VPS_SSH_KEY:-}" ]; then
+            echo "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            SSH=(ssh -p "$VPS_SSH_PORT" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new)
+            SCP=(scp -P "$VPS_SSH_PORT" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new)
+          else
+            : "${VPS_PASSWORD:?Set either VPS_SSH_KEY or VPS_PASSWORD secret}"
+            sudo apt-get update
+            sudo apt-get install -y sshpass
+            SSH=(sshpass -p "$VPS_PASSWORD" ssh -p "$VPS_SSH_PORT" -o StrictHostKeyChecking=accept-new)
+            SCP=(sshpass -p "$VPS_PASSWORD" scp -P "$VPS_SSH_PORT" -o StrictHostKeyChecking=accept-new)
+          fi
 
-          ssh -p "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p /opt/myapp"
+          "${SSH[@]}" "$VPS_USER@$VPS_HOST" 'bash -s' <<'EOF'
+            set -euo pipefail
 
-          scp -P "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key \
+            if [ "$(id -u)" -eq 0 ]; then
+              SUDO=""
+            else
+              SUDO="sudo"
+            fi
+
+            $SUDO apt-get update
+            $SUDO apt-get install -y ca-certificates curl gnupg ufw
+
+            if ! command -v docker >/dev/null 2>&1; then
+              $SUDO install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | $SUDO tee /etc/apt/keyrings/docker.asc >/dev/null
+              $SUDO chmod a+r /etc/apt/keyrings/docker.asc
+              . /etc/os-release
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+                | $SUDO tee /etc/apt/sources.list.d/docker.list >/dev/null
+              $SUDO apt-get update
+              $SUDO apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              $SUDO systemctl enable --now docker
+            fi
+
+            $SUDO ufw allow OpenSSH
+            $SUDO ufw allow 80/tcp
+            $SUDO ufw allow 443/tcp
+            $SUDO ufw --force enable
+
+            $SUDO mkdir -p /opt/myapp
+            $SUDO chown -R "$(id -un):$(id -gn)" /opt/myapp
+          EOF
+
+          "${SCP[@]}" \
             meventus.tar.gz docker-compose.yml Dockerfile.runtime Caddyfile .env.example \
             "$VPS_USER@$VPS_HOST:/opt/myapp/"
 
-          ssh -p "${VPS_SSH_PORT:-22}" -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" << 'EOF'
-            set -e
+          "${SSH[@]}" "$VPS_USER@$VPS_HOST" "cat > /opt/myapp/.env" <<EOF
+          BOT_TOKEN=$BOT_TOKEN
+          BOT_USERNAME=$BOT_USERNAME
+
+          POSTGRES_DB=$POSTGRES_DB
+          POSTGRES_USER=$POSTGRES_USER
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+
+          DATABASE_URL=jdbc:postgresql://db:5432/$POSTGRES_DB
+          DATABASE_USER=$POSTGRES_USER
+          DATABASE_PASSWORD=$POSTGRES_PASSWORD
+
+          WEBAPP_PORT=8080
+          WEBAPP_HOST=$WEBAPP_HOST
+          WEBAPP_URL=$WEBAPP_URL
+          EOF
+
+          "${SSH[@]}" "$VPS_USER@$VPS_HOST" 'bash -s' <<'EOF'
+            set -euo pipefail
 
             cd /opt/myapp
-
             rm -rf runtime
             mkdir -p runtime
             tar -xzf meventus.tar.gz -C runtime
-
-            if [ ! -f .env ]; then
-              cp .env.example .env
-              echo ".env created. Fill BOT_TOKEN, BOT_USERNAME and POSTGRES_PASSWORD on VPS."
-            fi
 
             docker compose up -d --build --remove-orphans
             docker image prune -f
