@@ -90,12 +90,18 @@ class MenuKeyboardHandler(
                 }
 
                 "📊 Статистика" -> {
-                    val markup = if (webAppUrl.startsWith("https://")) {
+                    val canOpenWebApp = webAppUrl.startsWith("https://")
+                    val markup = if (canOpenWebApp) {
                         InlineKeyboardMarkup.create(
                             listOf(InlineKeyboardButton.WebApp("Открыть мини‑приложение", WebAppInfo(webAppUrl))),
                         )
                     } else null
-                    bot.sendMessage(chatId, "📊 Откройте мини‑приложение для статистики и управления мероприятиями:", replyMarkup = markup)
+                    val hint = if (canOpenWebApp) {
+                        "📊 Откройте мини‑приложение для статистики и управления мероприятиями:"
+                    } else {
+                        "Mini App не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: $webAppUrl"
+                    }
+                    bot.sendMessage(chatId, hint, replyMarkup = markup)
                 }
             }
         }

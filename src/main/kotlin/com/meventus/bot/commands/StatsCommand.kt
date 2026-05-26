@@ -16,16 +16,22 @@ class StatsCommand(private val webAppUrl: String) : Command {
         dispatcher.command(name) {
             val userId = message.from?.id ?: return@command
             val stats = StatsStorage.get(userId)
+            val canOpenWebApp = webAppUrl.startsWith("https://")
+            val webAppHint = if (canOpenWebApp) {
+                ""
+            } else {
+                "\n\nMini App не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: `$webAppUrl`"
+            }
             val text = """
                 📊 *Ваша статистика*
 
                 Сообщений отправлено: *${stats.messageCount}*
                 Самое популярное слово: *${stats.topWord ?: "—"}*
-            """.trimIndent()
+            """.trimIndent() + webAppHint
 
-            val markup = if (webAppUrl.startsWith("https://")) {
+            val markup = if (canOpenWebApp) {
                 InlineKeyboardMarkup.create(
-                    listOf(InlineKeyboardButton.WebApp("Открыть мини‑приложение", WebAppInfo(webAppUrl)))
+                    listOf(InlineKeyboardButton.WebApp("Открыть мини-приложение", WebAppInfo(webAppUrl))),
                 )
             } else null
 
