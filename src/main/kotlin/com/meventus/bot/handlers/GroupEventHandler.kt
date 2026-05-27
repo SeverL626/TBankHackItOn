@@ -7,6 +7,8 @@ import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
 import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.meventus.bot.cleanup.MessageCleaner
+import com.meventus.bot.messages.Messages
 import com.meventus.domain.model.Event
 import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.EventTag
@@ -37,16 +39,19 @@ class GroupEventHandler(
             when {
                 command in setOf("/ghelp", "/group_help") ||
                     (mentionsBot && ("помощ" in normalized || "как" in normalized)) -> {
-                    bot.sendMessage(ChatId.fromId(chatId), GROUP_HELP, parseMode = ParseMode.MARKDOWN)
+                    MessageCleaner.deleteLater(bot, chatId, message.messageId, 20)
+                    sendTemporary(bot, ChatId.fromId(chatId), chatId, Messages.GROUP_HELP, 180)
                 }
 
                 command in setOf("/gevents", "/group_events") ||
                     (mentionsBot && ("мероприят" in normalized || "событ" in normalized || "афиша" in normalized)) -> {
+                    MessageCleaner.deleteLater(bot, chatId, message.messageId, 20)
                     sendGroupEvents(bot, ChatId.fromId(chatId), chatId)
                 }
 
                 command in setOf("/gnew", "/group_new") ||
                     (mentionsBot && ("созд" in normalized || "заплан" in normalized)) -> {
+                    MessageCleaner.deleteLater(bot, chatId, message.messageId, 45)
                     userService.registerIfAbsent(from.id, from.username, from.firstName)
                     createGroupEvent(bot, ChatId.fromId(chatId), chatId, text, username, from.id)
                 }
@@ -64,13 +69,13 @@ class GroupEventHandler(
     ) {
         val parsed = parse(text, botUsername)
         if (parsed == null) {
-            bot.sendMessage(chatId, GROUP_CREATE_HELP, parseMode = ParseMode.MARKDOWN)
+            sendTemporary(bot, chatId, groupChatId, Messages.GROUP_CREATE_HELP, 180)
             return
         }
 
         val startsAt = runCatching { DateUtils.parse(parsed.date) }.getOrNull()
         if (startsAt == null) {
-            bot.sendMessage(chatId, "Не понял дату. Нужен формат: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
+            sendTemporary(bot, chatId, groupChatId, "Не понял дату. Нужен формат: `25.05.2026 18:00`", 90)
             return
         }
 
@@ -104,34 +109,34 @@ class GroupEventHandler(
         val registeredNames = registered.mapNotNull { it.username }.toSet()
         val missing = parsed.usernames.filter { it.removePrefix("@") !in registeredNames }
 
-        bot.sendMessage(
-            chatId = chatId,
-            text = createdSummary(event, registered.size, missing),
-            parseMode = ParseMode.MARKDOWN,
-        )
-        sendGroupEventCard(bot, chatId, event)
+        sendTemporary(bot, chatId, groupChatId, createdSummary(event, registered.size, missing), 300)
+        sendGroupEventCard(bot, chatId, groupChatId, event)
     }
 
     private fun sendGroupEvents(bot: Bot, chatId: ChatId, groupChatId: Long) {
         val events = eventService.listByGroup(groupChatId)
         if (events.isEmpty()) {
-            bot.sendMessage(
-                chatId = chatId,
-                text = "В этой группе пока нет ближайших мероприятий.\n\nСоздать: /gnew Название | 25.05.2026 18:00 | Место | Описание | free private",
-                parseMode = ParseMode.MARKDOWN,
+            sendTemporary(
+                bot,
+                chatId,
+                groupChatId,
+                "В этой группе пока нет ближайших мероприятий.\n\nСоздать: `/gnew Название | 25.05.2026 18:00 | Место | Описание | free private`",
+                180,
             )
             return
         }
 
-        bot.sendMessage(
-            chatId = chatId,
-            text = "Мероприятия *этой группы*. Здесь не показываю общую афишу бота.",
-            parseMode = ParseMode.MARKDOWN,
+        sendTemporary(
+            bot,
+            chatId,
+            groupChatId,
+            "Мероприятия *этой группы*. Здесь не показываю общую афишу бота.",
+            120,
         )
-        events.forEach { sendGroupEventCard(bot, chatId, it) }
+        events.forEach { sendGroupEventCard(bot, chatId, groupChatId, it) }
     }
 
-    private fun sendGroupEventCard(bot: Bot, chatId: ChatId, event: Event) {
+    private fun sendGroupEventCard(bot: Bot, chatId: ChatId, groupChatId: Long, event: Event) {
         val participants = participantService.listByEvent(event.id).size
         val visibility = if (event.visibility == EventVisibility.PRIVATE) "🔒 только группа" else "🌍 публичное"
         val registration = if (event.registrationMode == EventRegistrationMode.FREE) {
@@ -159,12 +164,13 @@ class GroupEventHandler(
         } else {
             listOf(listOf(InlineKeyboardButton.CallbackData("🔍 Подробнее", "edetail:${event.id}")))
         }
-        bot.sendMessage(
+        val result = bot.sendMessage(
             chatId = chatId,
             text = text,
             parseMode = ParseMode.MARKDOWN,
             replyMarkup = InlineKeyboardMarkup.create(rows),
         )
+        MessageCleaner.deleteLater(bot, groupChatId, result, 30 * 60)
     }
 
     private data class ParsedGroupEvent(
@@ -254,36 +260,12 @@ class GroupEventHandler(
         }
     }
 
-    private companion object {
-        const val GROUP_HELP = """
-*Meventus для этой группы*
-
-Я веду мероприятия именно этого чата: список, запись и приглашения команды.
-
-Команды в группе:
-/gevents — мероприятия этой группы
-/gnew — создать мероприятие группы
-/ghelp — помощь по группе
-
-Режимы:
-*free* / `свободная` — любой в группе нажимает "Участвовать"
-*invite* / `по приглашению` — записываю только упомянутых людей
-
-Видимость:
-*private* / `приват` — только эта группа и участники
-*public* — попадёт ещё и в общую афишу
-"""
-
-        const val GROUP_CREATE_HELP = """
-*Создание мероприятия группы*
-
-Свободная запись, только для группы:
-`/gnew Демо-день | 25.05.2026 18:00 | офис | показываем проекты | free private #IT`
-
-По приглашению:
-`/gnew Созвон | 25.05.2026 18:00 | онлайн | синк команды | invite private @user1 @user2`
-
-Поля через `|`: название, дата, место, описание, настройки.
-"""
+    private fun sendTemporary(bot: Bot, chatId: ChatId, chatIdValue: Long, text: String, ttlSeconds: Long) {
+        val result = bot.sendMessage(
+            chatId = chatId,
+            text = text,
+            parseMode = ParseMode.MARKDOWN,
+        )
+        MessageCleaner.deleteLater(bot, chatIdValue, result, ttlSeconds)
     }
 }
