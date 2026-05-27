@@ -3,6 +3,7 @@ package com.meventus.bot.commands
 import com.github.kotlintelegrambot.dispatcher.Dispatcher
 import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.ChatId
+import com.github.kotlintelegrambot.entities.ParseMode
 import com.meventus.bot.messages.Messages
 
 class HelpCommand : Command {
@@ -13,6 +14,7 @@ class HelpCommand : Command {
             bot.sendMessage(
                 chatId = ChatId.fromId(message.chat.id),
                 text = Messages.HELP,
+                parseMode = ParseMode.MARKDOWN,
             )
         }
     }

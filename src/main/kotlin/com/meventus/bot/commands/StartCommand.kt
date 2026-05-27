@@ -4,6 +4,7 @@ import com.github.kotlintelegrambot.dispatcher.Dispatcher
 import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.KeyboardReplyMarkup
+import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.KeyboardButton
 import com.meventus.bot.messages.Messages
 import com.meventus.domain.service.UserService
@@ -15,9 +16,9 @@ class StartCommand(
 
     private val menuKeyboard = KeyboardReplyMarkup(
         keyboard = listOf(
-            listOf(KeyboardButton("📋 Мероприятия"), KeyboardButton("⭐ Мои события")),
-            listOf(KeyboardButton("➕ Создать событие"), KeyboardButton("📢 Рассылка")),
-            listOf(KeyboardButton("📊 Статистика")),
+            listOf(KeyboardButton("🔎 Найти"), KeyboardButton("➕ Создать")),
+            listOf(KeyboardButton("👤 Мои"), KeyboardButton("🌐 Mini App")),
+            listOf(KeyboardButton("📢 Рассылка"), KeyboardButton("❓ Помощь")),
         ),
         resizeKeyboard = true,
     )
@@ -33,6 +34,7 @@ class StartCommand(
             bot.sendMessage(
                 chatId = ChatId.fromId(message.chat.id),
                 text = Messages.welcome(from.firstName),
+                parseMode = ParseMode.MARKDOWN,
                 replyMarkup = menuKeyboard,
             )
         }

@@ -44,6 +44,7 @@ class LeaveEventCallback(
                 chatId = ChatId.fromId(chatId),
                 messageId = messageId,
                 replyMarkup = InlineKeyboardMarkup.create(
+                    listOf(InlineKeyboardButton.CallbackData("🔍 Подробнее", "edetail:$eventId")),
                     listOf(InlineKeyboardButton.CallbackData("✅ Участвовать", "ejoin:$eventId")),
                 ),
             )

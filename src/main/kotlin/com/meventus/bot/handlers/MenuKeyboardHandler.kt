@@ -7,18 +7,24 @@ import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
 import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
 import com.github.kotlintelegrambot.entities.keyboard.WebAppInfo
+import com.meventus.bot.commands.ListEventsCommand
+import com.meventus.bot.messages.Messages
 import com.meventus.bot.states.StateStorage
 import com.meventus.bot.states.UserState
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
-import com.meventus.util.DateUtils
 
 val MENU_BUTTONS = mapOf(
     "📋 Мероприятия" to "events",
+    "🔎 Найти" to "events",
     "⭐ Мои события" to "mine",
+    "👤 Мои" to "mine",
     "➕ Создать событие" to "new",
+    "➕ Создать" to "new",
     "📢 Рассылка" to "broadcast",
     "📊 Статистика" to "stats",
+    "🌐 Mini App" to "stats",
+    "❓ Помощь" to "help",
 )
 
 class MenuKeyboardHandler(
@@ -36,39 +42,44 @@ class MenuKeyboardHandler(
             val chatId = ChatId.fromId(message.chat.id)
 
             when (text) {
-                "📋 Мероприятия" -> {
-                    val events = eventService.listUpcoming().take(10)
-                    if (events.isEmpty()) {
-                        bot.sendMessage(chatId, "Ближайших мероприятий нет.")
-                        return@text
-                    }
-                    val reply = buildString {
-                        appendLine("*Ближайшие мероприятия:*")
-                        events.forEach { e ->
-                            appendLine("• *${e.title}* — ${DateUtils.format(e.startsAt)}")
-                            if (e.shortDescription.isNotBlank()) appendLine("  ${e.shortDescription}")
-                        }
-                        appendLine("\nИспользуй /events для фильтра по тегам")
-                    }
-                    bot.sendMessage(chatId, reply, parseMode = ParseMode.MARKDOWN)
+                "📋 Мероприятия", "🔎 Найти" -> {
+                    ListEventsCommand.sendEventList(
+                        bot = bot,
+                        chatId = chatId,
+                        events = eventService.listUpcoming(),
+                        participantService = participantService,
+                        userId = userId,
+                    )
                 }
 
-                "⭐ Мои события" -> {
+                "⭐ Мои события", "👤 Мои" -> {
                     val owned = eventService.listByOwner(userId)
                     val joined = participantService.listEventsByUser(userId).filter { it.ownerId != userId }
-                    val reply = buildString {
-                        appendLine("*Вы организуете:*")
-                        if (owned.isEmpty()) appendLine("—") else owned.forEach { appendLine("• ${it.title} — ${DateUtils.format(it.startsAt)}") }
-                        appendLine()
-                        appendLine("*Вы участвуете:*")
-                        if (joined.isEmpty()) appendLine("—") else joined.forEach { appendLine("• ${it.title} — ${DateUtils.format(it.startsAt)}") }
+                    if (owned.isEmpty() && joined.isEmpty()) {
+                        bot.sendMessage(
+                            chatId,
+                            "У вас пока нет мероприятий.\n\nЧтобы записаться: *🔎 Найти*.\nЧтобы создать своё: *➕ Создать*.",
+                            parseMode = ParseMode.MARKDOWN,
+                        )
+                        return@text
                     }
-                    bot.sendMessage(chatId, reply, parseMode = ParseMode.MARKDOWN)
+                    if (joined.isNotEmpty()) {
+                        bot.sendMessage(chatId, "*Вы участвуете:*", parseMode = ParseMode.MARKDOWN)
+                        joined.forEach { ListEventsCommand.sendEventCard(bot, chatId, it, participantService, userId) }
+                    }
+                    if (owned.isNotEmpty()) {
+                        bot.sendMessage(chatId, "*Вы организуете:*", parseMode = ParseMode.MARKDOWN)
+                        owned.forEach { ListEventsCommand.sendEventCard(bot, chatId, it, participantService, userId) }
+                    }
                 }
 
-                "➕ Создать событие" -> {
+                "➕ Создать событие", "➕ Создать" -> {
                     stateStorage.set(userId, UserState.AwaitingEventTitle())
-                    bot.sendMessage(chatId, "Создаём мероприятие!\n\nШаг 1/7 — Введите *название*:", parseMode = ParseMode.MARKDOWN)
+                    bot.sendMessage(
+                        chatId,
+                        "Создаём *публичное* мероприятие.\n\nЕсли нужно приватное, напиши /cancel и затем /new private.\n\nШаг 1/8 — введи *название*:",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
                 }
 
                 "📢 Рассылка" -> {
@@ -89,19 +100,23 @@ class MenuKeyboardHandler(
                     )
                 }
 
-                "📊 Статистика" -> {
+                "📊 Статистика", "🌐 Mini App" -> {
                     val canOpenWebApp = webAppUrl.startsWith("https://")
                     val markup = if (canOpenWebApp) {
                         InlineKeyboardMarkup.create(
-                            listOf(InlineKeyboardButton.WebApp("Открыть мини‑приложение", WebAppInfo(webAppUrl))),
+                            listOf(InlineKeyboardButton.WebApp("🌐 Открыть Mini App", WebAppInfo(webAppUrl))),
                         )
                     } else null
                     val hint = if (canOpenWebApp) {
-                        "📊 Откройте мини‑приложение для статистики и управления мероприятиями:"
+                        "В Mini App удобнее смотреть афишу, записываться, создавать и редактировать мероприятия."
                     } else {
                         "Mini App не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: $webAppUrl"
                     }
                     bot.sendMessage(chatId, hint, replyMarkup = markup)
+                }
+
+                "❓ Помощь" -> {
+                    bot.sendMessage(chatId, Messages.HELP, parseMode = ParseMode.MARKDOWN)
                 }
             }
         }

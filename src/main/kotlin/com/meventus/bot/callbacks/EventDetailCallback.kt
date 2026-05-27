@@ -34,12 +34,17 @@ class EventDetailCallback(
 
             val participants = participantService.listByEvent(eventId)
             val isJoined = participantService.isParticipant(eventId, userId)
+            val isOwner = event.ownerId == userId
             val costText = if (event.cost == 0L) "Бесплатно" else "${event.cost} ₽"
             val tagsText = event.tags.joinToString(" ") { "${it.emoji} ${it.displayName}" }
+            val visibilityText = if (event.visibility.name == "PRIVATE") "🔒 Приватное" else "🌍 Публичное"
 
             val text = buildString {
                 appendLine("*${event.title}*")
                 if (tagsText.isNotEmpty()) appendLine(tagsText)
+                appendLine(visibilityText)
+                if (isOwner) appendLine("👑 Вы организатор")
+                if (isJoined) appendLine("✅ Вы участвуете")
                 appendLine()
                 appendLine(event.description)
                 appendLine()
@@ -47,14 +52,22 @@ class EventDetailCallback(
                 appendLine("📅 *Дата:* ${DateUtils.format(event.startsAt)}")
                 appendLine("💰 *Стоимость:* $costText")
                 appendLine("👥 *Участников:* ${participants.size}")
+                if (!isOwner && !isJoined) {
+                    appendLine()
+                    appendLine("Чтобы записаться, нажмите *✅ Участвовать* ниже.")
+                }
             }
 
-            val joinButton = if (isJoined) {
-                InlineKeyboardButton.CallbackData("❌ Покинуть", "leave:$eventId")
+            val markup = if (isOwner) {
+                InlineKeyboardMarkup.create(listOf(InlineKeyboardButton.CallbackData("🔄 Обновить карточку", "edetail:$eventId")))
             } else {
-                InlineKeyboardButton.CallbackData("✅ Участвовать", "ejoin:$eventId")
+                val joinButton = if (isJoined) {
+                    InlineKeyboardButton.CallbackData("❌ Покинуть", "leave:$eventId")
+                } else {
+                    InlineKeyboardButton.CallbackData("✅ Участвовать", "ejoin:$eventId")
+                }
+                InlineKeyboardMarkup.create(listOf(joinButton))
             }
-            val markup = InlineKeyboardMarkup.create(listOf(joinButton))
 
             bot.answerCallbackQuery(callbackQuery.id)
 

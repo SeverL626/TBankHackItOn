@@ -27,7 +27,11 @@ class JoinEventCallback(
             val messageId = callbackQuery.message?.messageId ?: return@callbackQuery
 
             val event = eventService.findById(eventId)
-            if (event != null && event.ownerId == userId) {
+            if (event == null) {
+                bot.answerCallbackQuery(callbackQuery.id, "Мероприятие не найдено")
+                return@callbackQuery
+            }
+            if (event.ownerId == userId) {
                 bot.answerCallbackQuery(callbackQuery.id, "Вы организатор этого мероприятия")
                 return@callbackQuery
             }
@@ -37,16 +41,15 @@ class JoinEventCallback(
                 return@callbackQuery
             }
 
-            val ev = eventService.findById(eventId)
-            if (ev != null && ev.paymentType == PaymentType.ADVANCE) {
-                val costStr = if (ev.cost > 0) "*${ev.cost}₽*" else "бесплатно"
+            if (event.paymentType == PaymentType.ADVANCE) {
+                val costStr = if (event.cost > 0) "*${event.cost}₽*" else "бесплатно"
                 bot.answerCallbackQuery(callbackQuery.id)
                 bot.sendMessage(
                     chatId = ChatId.fromId(chatId),
                     text = "💳 *Оплата заранее через СБП*\n\n" +
                         "Сумма: $costStr\n" +
-                        "Номер: `${ev.sbpPhone}`\n" +
-                        "Получатель: *${ev.sbpName}*\n\n" +
+                        "Номер: `${event.sbpPhone}`\n" +
+                        "Получатель: *${event.sbpName}*\n\n" +
                         "После перевода нажмите кнопку ниже — организатор получит уведомление и подтвердит оплату.",
                     parseMode = ParseMode.MARKDOWN,
                     replyMarkup = InlineKeyboardMarkup.create(
@@ -57,21 +60,20 @@ class JoinEventCallback(
             }
 
             participantService.join(eventId, userId)
-            bot.answerCallbackQuery(callbackQuery.id, "Вы записались! ✅")
-            if (event != null) {
-                val name = callbackQuery.from.username?.let { "@$it" } ?: callbackQuery.from.firstName
-                runCatching {
-                    bot.sendMessage(
-                        chatId = ChatId.fromId(event.ownerId),
-                        text = "Новый участник: $name записался на *${event.title}*",
-                        parseMode = ParseMode.MARKDOWN,
-                    )
-                }
+            bot.answerCallbackQuery(callbackQuery.id, "Готово, вы записались ✅")
+            val name = callbackQuery.from.username?.let { "@$it" } ?: callbackQuery.from.firstName
+            runCatching {
+                bot.sendMessage(
+                    chatId = ChatId.fromId(event.ownerId),
+                    text = "Новый участник: $name записался на *${event.title}*",
+                    parseMode = ParseMode.MARKDOWN,
+                )
             }
             bot.editMessageReplyMarkup(
                 chatId = ChatId.fromId(chatId),
                 messageId = messageId,
                 replyMarkup = InlineKeyboardMarkup.create(
+                    listOf(InlineKeyboardButton.CallbackData("🔍 Подробнее", "edetail:$eventId")),
                     listOf(InlineKeyboardButton.CallbackData("❌ Покинуть", "leave:$eventId")),
                 ),
             )

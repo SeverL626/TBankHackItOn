@@ -24,7 +24,7 @@ class CreateEventCommand(private val stateStorage: StateStorage) : Command {
             val visibilityText = if (visibility == EventVisibility.PRIVATE) "приватное" else "публичное"
             bot.sendMessage(
                 chatId = ChatId.fromId(message.chat.id),
-                text = "Создаём $visibilityText мероприятие. _/cancel — отменить_\n\nШаг 1/8 — введите *название*:",
+                text = "Создаём *$visibilityText* мероприятие.\n\nЯ задам несколько вопросов, потом покажу событие в афише. _/cancel — отменить_\n\nШаг 1/8 — введи *название*.\nНапример: `Kotlin meetup`",
                 parseMode = ParseMode.MARKDOWN,
             )
         }
