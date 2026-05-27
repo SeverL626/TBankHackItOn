@@ -1,7 +1,9 @@
 package com.meventus.infrastructure.persistence.repository
 
 import com.meventus.domain.model.Event
+import com.meventus.domain.model.EventStatus
 import com.meventus.domain.model.EventTag
+import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
 import com.meventus.domain.repository.EventRepository
 import com.meventus.infrastructure.persistence.tables.EventTagsTable
@@ -29,8 +31,23 @@ class EventRepositoryImpl : EventRepository {
     }
 
     override fun findUpcoming(now: Instant): List<Event> = transaction {
+            val rows = EventsTable.selectAll()
+            .where {
+                (EventsTable.startsAt greaterEq now) and
+                    (EventsTable.visibility eq EventVisibility.PUBLIC) and
+                    (EventsTable.status eq EventStatus.PUBLISHED)
+            }
+            .orderBy(EventsTable.startsAt, SortOrder.ASC)
+            .toList()
+        attachTags(rows)
+    }
+
+    override fun findUpcomingAll(now: Instant): List<Event> = transaction {
         val rows = EventsTable.selectAll()
-            .where { EventsTable.startsAt greaterEq now }
+            .where {
+                (EventsTable.startsAt greaterEq now) and
+                    (EventsTable.status eq EventStatus.PUBLISHED)
+            }
             .orderBy(EventsTable.startsAt, SortOrder.ASC)
             .toList()
         attachTags(rows)
@@ -45,7 +62,12 @@ class EventRepositoryImpl : EventRepository {
             .toSet()
         if (matchingIds.isEmpty()) return@transaction emptyList()
         val rows = EventsTable.selectAll()
-            .where { (EventsTable.id inList matchingIds.toList()) and (EventsTable.startsAt greaterEq now) }
+            .where {
+                    (EventsTable.id inList matchingIds.toList()) and
+                    (EventsTable.startsAt greaterEq now) and
+                    (EventsTable.visibility eq EventVisibility.PUBLIC) and
+                    (EventsTable.status eq EventStatus.PUBLISHED)
+            }
             .orderBy(EventsTable.startsAt, SortOrder.ASC)
             .toList()
         attachTags(rows)
@@ -74,6 +96,8 @@ class EventRepositoryImpl : EventRepository {
                 it[paymentType] = event.paymentType
                 it[sbpPhone] = event.sbpPhone
                 it[sbpName] = event.sbpName
+                it[visibility] = event.visibility
+                it[groupChatId] = event.groupChatId
             }.value
             saveTags(id, event.tags)
             event.copy(id = id)
@@ -90,6 +114,8 @@ class EventRepositoryImpl : EventRepository {
                 it[paymentType] = event.paymentType
                 it[sbpPhone] = event.sbpPhone
                 it[sbpName] = event.sbpName
+                it[visibility] = event.visibility
+                it[groupChatId] = event.groupChatId
             }
             EventTagsTable.deleteWhere { eventId eq event.id }
             saveTags(event.id, event.tags)
@@ -143,5 +169,7 @@ class EventRepositoryImpl : EventRepository {
         paymentType = row[EventsTable.paymentType],
         sbpPhone = row[EventsTable.sbpPhone],
         sbpName = row[EventsTable.sbpName],
+        visibility = row[EventsTable.visibility],
+        groupChatId = row[EventsTable.groupChatId],
     )
 }

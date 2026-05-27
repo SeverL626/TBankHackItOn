@@ -4,10 +4,15 @@ import com.github.kotlintelegrambot.dispatcher.Dispatcher
 import com.github.kotlintelegrambot.dispatcher.callbackQuery
 import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
+import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
 
-class LeaveEventCallback(private val participantService: ParticipantService) : CallbackHandler {
+class LeaveEventCallback(
+    private val participantService: ParticipantService,
+    private val eventService: EventService,
+) : CallbackHandler {
     override val prefix = "leave:"
 
     override fun register(dispatcher: Dispatcher) {
@@ -27,6 +32,14 @@ class LeaveEventCallback(private val participantService: ParticipantService) : C
 
             participantService.leave(eventId, userId)
             bot.answerCallbackQuery(callbackQuery.id, "Вы покинули мероприятие")
+            eventService.findById(eventId)?.let { event ->
+                val name = callbackQuery.from.username?.let { "@$it" } ?: callbackQuery.from.firstName
+                bot.sendMessage(
+                    chatId = ChatId.fromId(event.ownerId),
+                    text = "Участник $name вышел из мероприятия *${event.title}*.",
+                    parseMode = ParseMode.MARKDOWN,
+                )
+            }
             bot.editMessageReplyMarkup(
                 chatId = ChatId.fromId(chatId),
                 messageId = messageId,

@@ -3,6 +3,7 @@ package com.meventus.domain.service
 import com.meventus.domain.model.Event
 import com.meventus.domain.model.EventStatus
 import com.meventus.domain.model.EventTag
+import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
 import com.meventus.domain.repository.EventRepository
 import java.time.Instant
@@ -22,6 +23,8 @@ class EventService(private val eventRepository: EventRepository) {
         paymentType: PaymentType = PaymentType.ON_SITE,
         sbpPhone: String? = null,
         sbpName: String? = null,
+        visibility: EventVisibility = EventVisibility.PUBLIC,
+        groupChatId: Long? = null,
     ): Event = eventRepository.save(
         Event(
             id = 0,
@@ -39,12 +42,16 @@ class EventService(private val eventRepository: EventRepository) {
             paymentType = paymentType,
             sbpPhone = sbpPhone,
             sbpName = sbpName,
+            visibility = visibility,
+            groupChatId = groupChatId,
         ),
     )
 
     fun findById(id: Long): Event? = eventRepository.findById(id)
 
     fun listUpcoming(): List<Event> = eventRepository.findUpcoming()
+
+    fun listUpcomingForNotifications(): List<Event> = eventRepository.findUpcomingAll()
 
     fun listByTags(tags: Set<EventTag>): List<Event> =
         if (tags.isEmpty()) eventRepository.findUpcoming()
@@ -65,6 +72,7 @@ class EventService(private val eventRepository: EventRepository) {
         paymentType: PaymentType? = null,
         sbpPhone: String? = null,
         sbpName: String? = null,
+        visibility: EventVisibility? = null,
     ): Event? {
         val existing = eventRepository.findById(eventId) ?: return null
         if (existing.ownerId != ownerId) return null
@@ -81,6 +89,7 @@ class EventService(private val eventRepository: EventRepository) {
                 paymentType = newPaymentType,
                 sbpPhone = if (newPaymentType == PaymentType.ADVANCE) sbpPhone ?: existing.sbpPhone else null,
                 sbpName = if (newPaymentType == PaymentType.ADVANCE) sbpName ?: existing.sbpName else null,
+                visibility = visibility ?: existing.visibility,
             ),
         )
     }

@@ -2,12 +2,15 @@ package com.meventus.webapp
 
 import com.meventus.bot.stats.StatsStorage
 import com.meventus.domain.model.EventTag
+import com.meventus.domain.model.EventVisibility
+import com.meventus.domain.model.PaymentType
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.net.URL
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -51,7 +54,14 @@ object WebAppServer {
             val search = params["search"]?.lowercase() ?: ""
 
             val tags = EventTag.entries.filter { tagBitmask and it.bit != 0 }.toSet()
-            val events = if (tags.isEmpty()) eventService.listUpcoming() else eventService.listByTags(tags)
+            val publicEvents = if (tags.isEmpty()) eventService.listUpcoming() else eventService.listByTags(tags)
+            val events = if (userId > 0 && tags.isEmpty()) {
+                (publicEvents + eventService.listByOwner(userId) + participantService.listEventsByUser(userId))
+                    .distinctBy { it.id }
+                    .sortedBy { it.startsAt }
+            } else {
+                publicEvents
+            }
 
             val filtered = if (search.isBlank()) events
             else events.filter {
@@ -68,7 +78,7 @@ object WebAppServer {
                     val participants = participantService.listByEvent(e.id)
                     val tagJson = e.tags.joinToString(",", "[", "]") { "\"${it.name}\"" }
                     val photoUrl = e.photoFileId?.let { "\"/api/photo?fileId=${it}\"" } ?: "null"
-                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"shortDescription":${e.shortDescription.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"isParticipant":$isParticipant,"ownerId":${e.ownerId},"status":"${e.status.name}","photoUrl":$photoUrl}""")
+                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"shortDescription":${e.shortDescription.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"isParticipant":$isParticipant,"ownerId":${e.ownerId},"status":"${e.status.name}","visibility":"${e.visibility.name}","photoUrl":$photoUrl}""")
                 }
                 append("]")
             }
@@ -82,12 +92,19 @@ object WebAppServer {
             val id = params["id"]?.toLongOrNull() ?: run { send404(exchange); return@createContext }
             val userId = authenticate(exchange)?.id ?: 0L
             val event = eventService.findById(id) ?: run { send404(exchange); return@createContext }
+            if (event.visibility == EventVisibility.PRIVATE &&
+                event.ownerId != userId &&
+                !participantService.isParticipant(id, userId)
+            ) {
+                send404(exchange)
+                return@createContext
+            }
             val isParticipant = userId > 0 && participantService.isParticipant(id, userId)
             val participants = participantService.listByEvent(id)
             val totalContrib = participants.sumOf { it.contributed }
             val tagJson = event.tags.joinToString(",", "[", "]") { "\"${it.name}\"" }
             val photoUrl = event.photoFileId?.let { "\"/api/photo?fileId=${it}\"" } ?: "null"
-            val json = """{"id":${event.id},"title":${event.title.jsonStr()},"shortDescription":${event.shortDescription.jsonStr()},"description":${event.description.jsonStr()},"address":${event.address.jsonStr()},"startsAt":"${dtf.format(event.startsAt)}","cost":${event.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"isParticipant":$isParticipant,"ownerId":${event.ownerId},"status":"${event.status.name}","photoUrl":$photoUrl,"paymentType":"${event.paymentType.name}","sbpPhone":${event.sbpPhone?.jsonStr() ?: "null"},"sbpName":${event.sbpName?.jsonStr() ?: "null"}}"""
+            val json = """{"id":${event.id},"title":${event.title.jsonStr()},"shortDescription":${event.shortDescription.jsonStr()},"description":${event.description.jsonStr()},"address":${event.address.jsonStr()},"startsAt":"${dtf.format(event.startsAt)}","cost":${event.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"isParticipant":$isParticipant,"ownerId":${event.ownerId},"status":"${event.status.name}","visibility":"${event.visibility.name}","photoUrl":$photoUrl,"paymentType":"${event.paymentType.name}","sbpPhone":${event.sbpPhone?.jsonStr() ?: "null"},"sbpName":${event.sbpName?.jsonStr() ?: "null"}}"""
             sendJson(exchange, json)
         }
 
@@ -98,8 +115,8 @@ object WebAppServer {
             val params = parseQuery(body)
             val eventId = params["eventId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad eventId"); return@createContext }
             val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
-            val event = eventService.findById(eventId)
-            if (event != null && event.ownerId == userId) {
+            val event = eventService.findById(eventId) ?: run { send404(exchange); return@createContext }
+            if (event.ownerId == userId) {
                 sendJson(exchange, """{"ok":false,"error":"owner cannot join own event"}""")
                 return@createContext
             }
@@ -107,7 +124,11 @@ object WebAppServer {
                 sendJson(exchange, """{"ok":false,"error":"already joined"}""")
                 return@createContext
             }
-            if (event != null && event.paymentType == com.meventus.domain.model.PaymentType.ADVANCE) {
+            if (event.visibility == EventVisibility.PRIVATE) {
+                sendJson(exchange, """{"ok":false,"error":"private event"}""")
+                return@createContext
+            }
+            if (event.paymentType == PaymentType.ADVANCE) {
                 val costStr = if (event.cost > 0) "${event.cost}₽" else "бесплатно"
                 val text = "💳 *Оплата заранее через СБП*\n\nМероприятие: *${event.title}*\nСумма: $costStr\nНомер: `${event.sbpPhone}`\nПолучатель: *${event.sbpName}*\n\nПосле перевода нажмите кнопку ниже — организатор получит уведомление и подтвердит оплату."
                 val keyboard = """{"inline_keyboard":[[{"text":"📲 Я перевёл деньги","callback_data":"pay_sent:${event.id}"}]]}"""
@@ -116,6 +137,7 @@ object WebAppServer {
                 return@createContext
             }
             participantService.join(eventId, userId)
+            sendTelegramMessage(event.ownerId, "Новый участник записался на *${event.title}* через Mini App.")
             sendJson(exchange, """{"ok":true}""")
         }
 
@@ -126,7 +148,11 @@ object WebAppServer {
             val params = parseQuery(body)
             val eventId = params["eventId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad eventId"); return@createContext }
             val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
+            val event = eventService.findById(eventId)
             participantService.leave(eventId, userId)
+            if (event != null && event.ownerId != userId) {
+                sendTelegramMessage(event.ownerId, "Участник вышел из мероприятия *${event.title}* через Mini App.")
+            }
             sendJson(exchange, """{"ok":true}""")
         }
 
@@ -142,11 +168,48 @@ object WebAppServer {
                     val participants = participantService.listByEvent(e.id)
                     val totalContrib = participants.sumOf { it.contributed }
                     val tagJson = e.tags.joinToString(",", "[", "]") { "\"${it.name}\"" }
-                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"status":"${e.status.name}"}""")
+                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"status":"${e.status.name}","visibility":"${e.visibility.name}"}""")
                 }
                 append("]")
             }
             sendJson(exchange, json)
+        }
+
+        // POST /api/event/create  body: title=...&shortDescription=...&description=...&address=...&startsAt=YYYY-MM-DDTHH:MM&cost=N&tags=N&visibility=PUBLIC
+        server.createContext("/api/event/create") { exchange ->
+            if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
+            val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            val params = parseQuery(body)
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
+            val title = params["title"]?.takeIf { it.isNotBlank() } ?: run { sendErr(exchange, "bad title"); return@createContext }
+            val shortDescription = params["shortDescription"] ?: ""
+            val description = params["description"] ?: ""
+            val address = params["address"] ?: ""
+            val startsAt = parseMiniAppInstant(params["startsAt"]) ?: run { sendErr(exchange, "bad startsAt format"); return@createContext }
+            val cost = params["cost"]?.toLongOrNull() ?: 0L
+            val tagBitmask = params["tags"]?.toIntOrNull() ?: 0
+            val tags = EventTag.entries.filter { tagBitmask and it.bit != 0 }.toSet()
+            val visibility = parseVisibility(params["visibility"])
+            val paymentType = parsePaymentType(params["paymentType"])
+            val sbpPhone = params["sbpPhone"]?.takeIf { it.isNotBlank() }
+            val sbpName = params["sbpName"]?.takeIf { it.isNotBlank() }
+
+            val event = eventService.create(
+                ownerId = userId,
+                title = title,
+                shortDescription = shortDescription,
+                description = description,
+                address = address,
+                startsAt = startsAt,
+                cost = cost,
+                photoFileId = null,
+                tags = tags,
+                paymentType = paymentType,
+                sbpPhone = if (paymentType == PaymentType.ADVANCE) sbpPhone else null,
+                sbpName = if (paymentType == PaymentType.ADVANCE) sbpName else null,
+                visibility = visibility,
+            )
+            sendJson(exchange, """{"ok":true,"id":${event.id}}""")
         }
 
         // POST /api/event/update  body: id=X&title=...&shortDescription=...&description=...&address=...&startsAt=YYYY-MM-DDTHH:MM&cost=N&tags=N
@@ -164,19 +227,55 @@ object WebAppServer {
             val cost = params["cost"]?.toLongOrNull() ?: 0L
             val tagBitmask = params["tags"]?.toIntOrNull() ?: 0
             val tags = EventTag.entries.filter { tagBitmask and it.bit != 0 }.toSet()
+            val visibility = parseVisibility(params["visibility"])
+            val paymentType = parsePaymentType(params["paymentType"])
+            val sbpPhone = params["sbpPhone"]?.takeIf { it.isNotBlank() }
+            val sbpName = params["sbpName"]?.takeIf { it.isNotBlank() }
 
-            val startsAt = runCatching {
-                // datetime-local has no zone; Mini App displays and edits dates in Moscow time.
-                val ldt = LocalDateTime.parse(startsAtStr.take(16), DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
-                ldt.atZone(moscowZone).toInstant()
-            }.getOrNull() ?: run { sendErr(exchange, "bad startsAt format"); return@createContext }
+            val startsAt = parseMiniAppInstant(startsAtStr) ?: run { sendErr(exchange, "bad startsAt format"); return@createContext }
 
-            val updated = eventService.update(id, userId, title, shortDescription, description, address, startsAt, cost, tags)
+            val updated = eventService.update(
+                id,
+                userId,
+                title,
+                shortDescription,
+                description,
+                address,
+                startsAt,
+                cost,
+                tags,
+                paymentType = paymentType,
+                sbpPhone = sbpPhone,
+                sbpName = sbpName,
+                visibility = visibility,
+            )
             if (updated == null) {
                 sendJson(exchange, """{"ok":false,"error":"not found or not owner"}""")
             } else {
                 sendJson(exchange, """{"ok":true,"id":${updated.id}}""")
             }
+        }
+
+        // POST /api/broadcast body: eventId=X&message=text
+        server.createContext("/api/broadcast") { exchange ->
+            if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
+            val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            val params = parseQuery(body)
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
+            val eventId = params["eventId"]?.toLongOrNull() ?: run { sendErr(exchange, "bad eventId"); return@createContext }
+            val message = params["message"]?.takeIf { it.isNotBlank() } ?: run { sendErr(exchange, "bad message"); return@createContext }
+            val event = eventService.findById(eventId) ?: run { send404(exchange); return@createContext }
+            if (event.ownerId != userId) {
+                sendUnauthorized(exchange)
+                return@createContext
+            }
+
+            val participants = participantService.listByEvent(eventId)
+            val text = "📢 *${event.title}*\n\n$message"
+            participants.forEach { participant ->
+                sendTelegramMessage(participant.userId, text)
+            }
+            sendJson(exchange, """{"ok":true,"sent":${participants.size},"total":${participants.size}}""")
         }
 
         // GET /api/photo?fileId=X — proxy Telegram file to browser
@@ -313,6 +412,23 @@ object WebAppServer {
                 if (idx < 0) null else it.substring(0, idx) to java.net.URLDecoder.decode(it.substring(idx + 1), "UTF-8")
             }
             ?.toMap() ?: emptyMap()
+
+    private fun parseMiniAppInstant(value: String?): Instant? {
+        val raw = value?.take(16) ?: return null
+        return runCatching {
+            // datetime-local has no zone; Mini App displays and edits dates in Moscow time.
+            val ldt = LocalDateTime.parse(raw, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
+            ldt.atZone(moscowZone).toInstant()
+        }.getOrNull()
+    }
+
+    private fun parseVisibility(value: String?): EventVisibility =
+        runCatching { EventVisibility.valueOf(value?.uppercase() ?: EventVisibility.PUBLIC.name) }
+            .getOrDefault(EventVisibility.PUBLIC)
+
+    private fun parsePaymentType(value: String?): PaymentType =
+        runCatching { PaymentType.valueOf(value?.uppercase() ?: PaymentType.ON_SITE.name) }
+            .getOrDefault(PaymentType.ON_SITE)
 
     private fun String.jsonStr(): String {
         val escaped = this

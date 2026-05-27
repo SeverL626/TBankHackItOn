@@ -67,7 +67,7 @@ class MenuKeyboardHandler(
                 }
 
                 "➕ Создать событие" -> {
-                    stateStorage.set(userId, UserState.AwaitingEventTitle)
+                    stateStorage.set(userId, UserState.AwaitingEventTitle())
                     bot.sendMessage(chatId, "Создаём мероприятие!\n\nШаг 1/7 — Введите *название*:", parseMode = ParseMode.MARKDOWN)
                 }
 

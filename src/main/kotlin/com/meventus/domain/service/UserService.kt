@@ -18,4 +18,7 @@ class UserService(
                 ),
             )
     }
+
+    fun findByUsername(username: String): User? =
+        userRepository.findByUsername(username.removePrefix("@"))
 }

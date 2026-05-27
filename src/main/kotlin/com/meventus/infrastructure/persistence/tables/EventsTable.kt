@@ -1,6 +1,7 @@
 package com.meventus.infrastructure.persistence.tables
 
 import com.meventus.domain.model.EventStatus
+import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
 import org.jetbrains.exposed.dao.id.LongIdTable
 import org.jetbrains.exposed.sql.javatime.timestamp
@@ -19,4 +20,6 @@ object EventsTable : LongIdTable("events") {
     val paymentType = enumerationByName("payment_type", 16, PaymentType::class).default(PaymentType.ON_SITE)
     val sbpPhone = varchar("sbp_phone", 32).nullable()
     val sbpName = varchar("sbp_name", 128).nullable()
+    val visibility = enumerationByName("visibility", 16, EventVisibility::class).default(EventVisibility.PUBLIC)
+    val groupChatId = long("group_chat_id").nullable()
 }

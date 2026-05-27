@@ -129,5 +129,7 @@ class ParticipantRepositoryImpl : ParticipantRepository {
         paymentType = row[EventsTable.paymentType],
         sbpPhone = row[EventsTable.sbpPhone],
         sbpName = row[EventsTable.sbpName],
+        visibility = row[EventsTable.visibility],
+        groupChatId = row[EventsTable.groupChatId],
     )
 }

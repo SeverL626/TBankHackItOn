@@ -58,6 +58,16 @@ class JoinEventCallback(
 
             participantService.join(eventId, userId)
             bot.answerCallbackQuery(callbackQuery.id, "Вы записались! ✅")
+            if (event != null) {
+                val name = callbackQuery.from.username?.let { "@$it" } ?: callbackQuery.from.firstName
+                runCatching {
+                    bot.sendMessage(
+                        chatId = ChatId.fromId(event.ownerId),
+                        text = "Новый участник: $name записался на *${event.title}*",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                }
+            }
             bot.editMessageReplyMarkup(
                 chatId = ChatId.fromId(chatId),
                 messageId = messageId,

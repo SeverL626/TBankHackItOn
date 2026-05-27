@@ -18,4 +18,6 @@ data class Event(
     val paymentType: PaymentType = PaymentType.ON_SITE,
     val sbpPhone: String? = null,
     val sbpName: String? = null,
+    val visibility: EventVisibility = EventVisibility.PUBLIC,
+    val groupChatId: Long? = null,
 )

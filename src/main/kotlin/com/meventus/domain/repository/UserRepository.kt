@@ -4,5 +4,6 @@ import com.meventus.domain.model.User
 
 interface UserRepository {
     fun findByTelegramId(telegramId: Long): User?
+    fun findByUsername(username: String): User?
     fun save(user: User): User
 }

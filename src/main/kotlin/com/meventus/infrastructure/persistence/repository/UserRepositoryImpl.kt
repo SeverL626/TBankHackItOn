@@ -17,6 +17,13 @@ class UserRepositoryImpl : UserRepository {
             .firstOrNull()
     }
 
+    override fun findByUsername(username: String): User? = transaction {
+        UsersTable.selectAll()
+            .where { UsersTable.username eq username.removePrefix("@") }
+            .map(::toUser)
+            .firstOrNull()
+    }
+
     override fun save(user: User): User = transaction {
         UsersTable.insert {
             it[telegramId] = user.telegramId

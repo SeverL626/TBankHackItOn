@@ -11,6 +11,11 @@ class ParticipantService(private val participantRepository: ParticipantRepositor
     fun join(eventId: Long, userId: Long): Participant =
         participantRepository.add(Participant(eventId, userId, Instant.now()))
 
+    fun joinIfAbsent(eventId: Long, userId: Long): Participant? {
+        if (participantRepository.isParticipant(eventId, userId)) return null
+        return participantRepository.add(Participant(eventId, userId, Instant.now()))
+    }
+
     fun joinWithPayment(eventId: Long, userId: Long, phone: String, name: String): Participant =
         participantRepository.add(
             Participant(
