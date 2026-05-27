@@ -155,7 +155,6 @@ class GroupEventHandler(
         val missing = parsed.usernames.filter { it.removePrefix("@") !in registeredNames }
 
         sendTemporary(bot, chatId, groupChatId, createdSummary(event, registered.size, missing), 300)
-        sendGroupEventCard(bot, chatId, groupChatId, event)
     }
 
     private fun sendGroupEvents(bot: Bot, chatId: ChatId, groupChatId: Long) {
@@ -189,14 +188,15 @@ class GroupEventHandler(
                 appendLine("   ID `${event.id}` · ${DateUtils.format(event.startsAt)} · $participants участн. · $mode")
             }
         }
-        val rows = pageEvents.map { event ->
-            listOf(InlineKeyboardButton.CallbackData("ID ${event.id}: ${event.title.take(24)}", "gdetail:${event.id}:$safePage"))
-        }.toMutableList()
+        val rows = mutableListOf<List<InlineKeyboardButton>>()
+        pageEvents.forEach { event ->
+            rows.add(listOf(InlineKeyboardButton.CallbackData("ID ${event.id}: ${event.title.take(24)}", "gdetail:${event.id}:$safePage")))
+        }
         val nav = mutableListOf<InlineKeyboardButton>()
         if (safePage > 0) nav += InlineKeyboardButton.CallbackData("◀", "gpage:${safePage - 1}")
         if (safePage < totalPages - 1) nav += InlineKeyboardButton.CallbackData("▶", "gpage:${safePage + 1}")
-        if (nav.isNotEmpty()) rows += nav
-        rows += listOf(InlineKeyboardButton.Url("➕ Создать в личке", "https://t.me/${botUsername.removePrefix("@")}?start=gnew_m${kotlin.math.abs(groupChatId)}"))
+        if (nav.isNotEmpty()) rows += listOf(nav)
+        rows += listOf(listOf(InlineKeyboardButton.Url("➕ Создать в личке", "https://t.me/${botUsername.removePrefix("@")}?start=gnew_m${kotlin.math.abs(groupChatId)}")))
 
         if (messageId == null) {
             val result = bot.sendMessage(
