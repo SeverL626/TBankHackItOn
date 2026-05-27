@@ -28,6 +28,7 @@ chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
+ufw allow 5432/tcp
 ufw --force enable
 
 install -d -m 700 "/home/$DEPLOY_USER/.ssh"

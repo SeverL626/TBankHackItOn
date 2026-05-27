@@ -38,6 +38,9 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_PUBLIC_BIND: ${{ secrets.POSTGRES_PUBLIC_BIND }}
+          POSTGRES_PUBLIC_PORT: ${{ secrets.POSTGRES_PUBLIC_PORT }}
+          POSTGRES_PUBLIC_CIDR: ${{ secrets.POSTGRES_PUBLIC_CIDR }}
           WEBAPP_HOST: ${{ secrets.WEBAPP_HOST }}
           WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
           RELEASE_ID: ${{ github.sha }}
@@ -52,6 +55,9 @@ jobs:
 
           POSTGRES_DB="${POSTGRES_DB:-meventus}"
           POSTGRES_USER="${POSTGRES_USER:-meventus}"
+          POSTGRES_PUBLIC_BIND="${POSTGRES_PUBLIC_BIND:-0.0.0.0}"
+          POSTGRES_PUBLIC_PORT="${POSTGRES_PUBLIC_PORT:-5432}"
+          POSTGRES_PUBLIC_CIDR="${POSTGRES_PUBLIC_CIDR:-any}"
           WEBAPP_HOST="${WEBAPP_HOST:-${VPS_HOST}.sslip.io}"
           WEBAPP_URL="${WEBAPP_URL:-https://${WEBAPP_HOST}}"
 
@@ -70,7 +76,7 @@ jobs:
             SCP=(sshpass -p "$VPS_PASSWORD" scp -P "$VPS_SSH_PORT" -o StrictHostKeyChecking=accept-new)
           fi
 
-          "${SSH[@]}" "$VPS_USER@$VPS_HOST" 'bash -s' <<'EOF'
+          "${SSH[@]}" "$VPS_USER@$VPS_HOST" "POSTGRES_PUBLIC_CIDR='$POSTGRES_PUBLIC_CIDR' POSTGRES_PUBLIC_PORT='$POSTGRES_PUBLIC_PORT' bash -s" <<'EOF'
             set -euo pipefail
 
             if [ "$(id -u)" -eq 0 ]; then
@@ -97,6 +103,11 @@ jobs:
             $SUDO ufw allow OpenSSH
             $SUDO ufw allow 80/tcp
             $SUDO ufw allow 443/tcp
+            if [ "${POSTGRES_PUBLIC_CIDR:-any}" = "any" ]; then
+              $SUDO ufw allow "${POSTGRES_PUBLIC_PORT:-5432}/tcp"
+            else
+              $SUDO ufw allow from "$POSTGRES_PUBLIC_CIDR" to any port "${POSTGRES_PUBLIC_PORT:-5432}" proto tcp
+            fi
             $SUDO ufw --force enable
 
             $SUDO mkdir -p /opt/myapp
@@ -114,6 +125,8 @@ jobs:
           POSTGRES_DB=$POSTGRES_DB
           POSTGRES_USER=$POSTGRES_USER
           POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          POSTGRES_PUBLIC_BIND=$POSTGRES_PUBLIC_BIND
+          POSTGRES_PUBLIC_PORT=$POSTGRES_PUBLIC_PORT
 
           DATABASE_URL=jdbc:postgresql://db:5432/$POSTGRES_DB
           DATABASE_USER=$POSTGRES_USER

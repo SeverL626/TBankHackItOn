@@ -9,6 +9,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meventus}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PUBLIC_BIND:-0.0.0.0}:${POSTGRES_PUBLIC_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meventus} -d ${POSTGRES_DB:-meventus}"]
       interval: 10s

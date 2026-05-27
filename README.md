@@ -257,6 +257,8 @@ BOT_USERNAME=meventur_bot
 POSTGRES_DB=meventus
 POSTGRES_USER=meventus
 POSTGRES_PASSWORD=...
+POSTGRES_PUBLIC_BIND=0.0.0.0
+POSTGRES_PUBLIC_PORT=5432
 
 DATABASE_URL=jdbc:postgresql://db:5432/meventus
 DATABASE_USER=meventus
@@ -277,6 +279,35 @@ WEBAPP_URL=https://...
 Если там `http://localhost:8080`, пусто или просто IP без HTTPS, кнопка Mini App в Telegram не появится.
 
 Для тех-уведомлений при деплое нужен `RELEASE_ID`. В GitHub Actions он прокидывается как `${{ github.sha }}`. Если `RELEASE_ID`/`GITHUB_SHA`/`APP_VERSION` не задан, бот не рассылает сообщение “Вышло обновление!” при старте, чтобы не спамить на обычных рестартах.
+
+## Подключение к БД из DBeaver
+
+PostgreSQL публикуется Docker Compose наружу через:
+
+```env
+POSTGRES_PUBLIC_BIND=0.0.0.0
+POSTGRES_PUBLIC_PORT=5432
+```
+
+В DBeaver создайте подключение PostgreSQL:
+
+```text
+Host: 185.4.72.98
+Port: 5432
+Database: meventus
+Username: meventus
+Password: <POSTGRES_PASSWORD>
+```
+
+После деплоя проверить порт на VPS:
+
+```bash
+cd /opt/myapp
+docker compose ps
+sudo ss -ltnp | grep ':5432'
+```
+
+Если нужно ограничить доступ к БД только своим IP, добавьте в GitHub Secrets `POSTGRES_PUBLIC_CIDR` со значением вроде `1.2.3.4/32`.
 
 ## Локальный запуск
 
