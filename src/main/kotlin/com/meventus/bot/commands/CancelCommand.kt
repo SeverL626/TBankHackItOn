@@ -18,6 +18,8 @@ class CancelCommand(private val stateStorage: StateStorage) : Command {
             val reply = when (state) {
                 is UserState.Idle -> "Нет активного действия для отмены."
                 is UserState.AwaitingBroadcast -> "Рассылка отменена."
+                is UserState.AwaitingCustomReminderTime,
+                is UserState.AwaitingCustomReminderMessage -> "Настройка уведомления отменена."
                 is UserState.AwaitingPaymentPhone,
                 is UserState.AwaitingPaymentName -> "Подтверждение оплаты отменено."
                 else -> "Создание мероприятия отменено. Данные удалены."

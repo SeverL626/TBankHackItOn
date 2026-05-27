@@ -106,6 +106,8 @@ sealed interface UserState {
 
     data class AwaitingBroadcast(val eventId: Long) : UserState
     data class AwaitingEventEdit(val eventId: Long, val field: String) : UserState
+    data class AwaitingCustomReminderTime(val eventId: Long) : UserState
+    data class AwaitingCustomReminderMessage(val eventId: Long, val secondsBefore: Long) : UserState
 
     // Joining — payment confirmation
     data class AwaitingPaymentPhone(val eventId: Long) : UserState

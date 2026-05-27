@@ -287,6 +287,29 @@ object WebAppServer {
             sendJson(exchange, """{"ok":true,"sent":${participants.size},"total":${participants.size}}""")
         }
 
+        // POST /api/event/delete body: id=X
+        server.createContext("/api/event/delete") { exchange ->
+            if (exchange.requestMethod == "OPTIONS") { sendCors(exchange); return@createContext }
+            val body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            val params = parseQuery(body)
+            val userId = authenticate(exchange)?.id ?: run { sendUnauthorized(exchange); return@createContext }
+            val id = params["id"]?.toLongOrNull() ?: run { sendErr(exchange, "bad id"); return@createContext }
+            val event = eventService.findById(id) ?: run { send404(exchange); return@createContext }
+            if (event.ownerId != userId) {
+                sendUnauthorized(exchange)
+                return@createContext
+            }
+            val deleted = eventService.delete(id, userId)
+            if (deleted) {
+                event.groupChatId?.let { groupChatId ->
+                    sendTelegramMessage(groupChatId, "Мероприятие *${event.title}* удалено.")
+                }
+                sendJson(exchange, """{"ok":true}""")
+            } else {
+                sendJson(exchange, """{"ok":false,"error":"not found or not owner"}""")
+            }
+        }
+
         // GET /api/photo?fileId=X — proxy Telegram file to browser
         server.createContext("/api/photo") { exchange ->
             val params = parseQuery(exchange.requestURI.query)

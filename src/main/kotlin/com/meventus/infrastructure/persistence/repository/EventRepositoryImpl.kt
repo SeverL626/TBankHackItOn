@@ -7,8 +7,10 @@ import com.meventus.domain.model.EventTag
 import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
 import com.meventus.domain.repository.EventRepository
+import com.meventus.infrastructure.persistence.tables.CustomRemindersTable
 import com.meventus.infrastructure.persistence.tables.EventTagsTable
 import com.meventus.infrastructure.persistence.tables.EventsTable
+import com.meventus.infrastructure.persistence.tables.ParticipantsTable
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
@@ -140,6 +142,8 @@ class EventRepositoryImpl : EventRepository {
 
 
     override fun delete(id: Long) = transaction {
+        CustomRemindersTable.deleteWhere { eventId eq id }
+        ParticipantsTable.deleteWhere { eventId eq id }
         EventTagsTable.deleteWhere { eventId eq id }
         EventsTable.deleteWhere { EventsTable.id eq id }
         Unit

@@ -14,6 +14,7 @@ object CreateEventKeyboard {
             InlineKeyboardButton.CallbackData("🌍 Публичное", "cvis:PUBLIC"),
             InlineKeyboardButton.CallbackData("🔒 Приватное", "cvis:PRIVATE"),
         )
+        rows += listOf(InlineKeyboardButton.CallbackData("ℹ️ Что это значит?", "chelp:visibility:open"))
         return InlineKeyboardMarkup.create(rows)
     }
 }

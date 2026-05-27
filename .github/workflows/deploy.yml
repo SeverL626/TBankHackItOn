@@ -40,6 +40,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           WEBAPP_HOST: ${{ secrets.WEBAPP_HOST }}
           WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+          RELEASE_ID: ${{ github.sha }}
         run: |
           set -euo pipefail
 
@@ -121,6 +122,7 @@ jobs:
           WEBAPP_PORT=8080
           WEBAPP_HOST=$WEBAPP_HOST
           WEBAPP_URL=$WEBAPP_URL
+          RELEASE_ID=$RELEASE_ID
           EOF
 
           "${SSH[@]}" "$VPS_USER@$VPS_HOST" 'bash -s' <<'EOF'

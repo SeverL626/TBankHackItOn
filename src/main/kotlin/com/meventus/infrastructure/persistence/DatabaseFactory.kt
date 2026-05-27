@@ -1,9 +1,12 @@
 package com.meventus.infrastructure.persistence
 
 import com.meventus.config.DatabaseConfig
+import com.meventus.infrastructure.persistence.tables.AppStateTable
+import com.meventus.infrastructure.persistence.tables.CustomRemindersTable
 import com.meventus.infrastructure.persistence.tables.EventTagsTable
 import com.meventus.infrastructure.persistence.tables.EventsTable
 import com.meventus.infrastructure.persistence.tables.ParticipantsTable
+import com.meventus.infrastructure.persistence.tables.TechUpdateSubscriptionsTable
 import com.meventus.infrastructure.persistence.tables.UsersTable
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
@@ -28,7 +31,13 @@ object DatabaseFactory {
         Database.connect(hikari)
         transaction {
             SchemaUtils.createMissingTablesAndColumns(
-                UsersTable, EventsTable, EventTagsTable, ParticipantsTable,
+                UsersTable,
+                EventsTable,
+                EventTagsTable,
+                ParticipantsTable,
+                TechUpdateSubscriptionsTable,
+                AppStateTable,
+                CustomRemindersTable,
             )
         }
     }

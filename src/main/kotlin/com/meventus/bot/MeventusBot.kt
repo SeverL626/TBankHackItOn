@@ -15,9 +15,11 @@ import com.meventus.bot.commands.ListEventsCommand
 import com.meventus.bot.commands.MyEventsCommand
 import com.meventus.bot.commands.StartCommand
 import com.meventus.bot.commands.StatsCommand
+import com.meventus.bot.commands.TechUpdatesCommand
 import com.meventus.bot.handlers.BroadcastHandler
 import com.meventus.bot.handlers.EventCreateHandler
 import com.meventus.bot.handlers.EventManageHandler
+import com.meventus.bot.handlers.GroupLifecycleHandler
 import com.meventus.bot.handlers.GroupEventHandler
 import com.meventus.bot.handlers.MenuKeyboardHandler
 import com.meventus.bot.handlers.PaymentHandler
@@ -25,11 +27,15 @@ import com.meventus.bot.notifications.EventReminderService
 import com.meventus.bot.states.InMemoryStateStorage
 import com.meventus.bot.stats.StatsStorage
 import com.meventus.config.AppConfig
+import com.meventus.domain.service.CustomReminderService
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
+import com.meventus.domain.service.TechUpdateService
 import com.meventus.domain.service.UserService
+import com.meventus.infrastructure.persistence.repository.CustomReminderRepositoryImpl
 import com.meventus.infrastructure.persistence.repository.EventRepositoryImpl
 import com.meventus.infrastructure.persistence.repository.ParticipantRepositoryImpl
+import com.meventus.infrastructure.persistence.repository.TechUpdateRepositoryImpl
 import com.meventus.infrastructure.persistence.repository.UserRepositoryImpl
 import java.net.HttpURLConnection
 import java.net.URL
@@ -39,6 +45,8 @@ class MeventusBot(private val config: AppConfig) {
     private val userService = UserService(UserRepositoryImpl())
     private val eventService = EventService(EventRepositoryImpl())
     private val participantService = ParticipantService(ParticipantRepositoryImpl())
+    private val customReminderService = CustomReminderService(CustomReminderRepositoryImpl())
+    private val techUpdateService = TechUpdateService(TechUpdateRepositoryImpl())
     private val stateStorage = InMemoryStateStorage()
 
     fun start() {
@@ -55,6 +63,8 @@ class MeventusBot(private val config: AppConfig) {
                 // Keyboard button handler (must be before FSM handlers)
                 MenuKeyboardHandler(eventService, participantService, stateStorage, config.webApp.url).register(this)
 
+                GroupLifecycleHandler(config.bot.username).register(this)
+
                 // Group flow: @bot create event | ... | @users.
                 GroupEventHandler(eventService, participantService, userService, config.bot.username).register(this)
 
@@ -68,7 +78,7 @@ class MeventusBot(private val config: AppConfig) {
                 PaymentHandler(eventService, participantService, stateStorage).register(this)
 
                 // Owner actions: edit, participants, custom notifications, cancel.
-                EventManageHandler(eventService, participantService, userService, stateStorage).register(this)
+                EventManageHandler(eventService, participantService, userService, customReminderService, stateStorage).register(this)
 
                 // Commands
                 CancelCommand(stateStorage).register(this)
@@ -79,6 +89,7 @@ class MeventusBot(private val config: AppConfig) {
                 MyEventsCommand(eventService, participantService).register(this)
                 StatsCommand(config.webApp.url).register(this)
                 BroadcastCommand(eventService, participantService).register(this)
+                TechUpdatesCommand(techUpdateService).register(this)
 
                 // Callbacks
                 EventDetailCallback(eventService, participantService).register(this)
@@ -89,7 +100,8 @@ class MeventusBot(private val config: AppConfig) {
 
         registerCommandMenus(bot)
 
-        EventReminderService(bot, eventService, participantService).start()
+        notifyTechUpdateIfNeeded(bot)
+        EventReminderService(bot, eventService, participantService, customReminderService).start()
         bot.startPolling()
     }
 
@@ -101,6 +113,8 @@ class MeventusBot(private val config: AppConfig) {
             BotCommand("my", "Мои события и управление"),
             BotCommand("broadcast", "Уведомление участникам"),
             BotCommand("stats", "Mini App"),
+            BotCommand("updates_on", "Включить тех-уведы"),
+            BotCommand("updates_off", "Выключить тех-уведы"),
             BotCommand("help", "Помощь"),
             BotCommand("cancel", "Отменить действие"),
         )
@@ -108,6 +122,8 @@ class MeventusBot(private val config: AppConfig) {
             BotCommand("gevents", "Мероприятия этой группы"),
             BotCommand("gnew", "Создать событие группы"),
             BotCommand("ginvite", "Пригласить участников"),
+            BotCommand("updates_on", "Включить тех-уведы"),
+            BotCommand("updates_off", "Выключить тех-уведы"),
         )
 
         bot.setMyCommands(privateCommands)
@@ -124,6 +140,22 @@ class MeventusBot(private val config: AppConfig) {
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             connection.inputStream.use { it.readBytes() }
+        }
+    }
+
+    private fun notifyTechUpdateIfNeeded(bot: com.github.kotlintelegrambot.Bot) {
+        val releaseId = System.getenv("RELEASE_ID")
+            ?: System.getenv("GITHUB_SHA")
+            ?: System.getenv("APP_VERSION")
+            ?: return
+        if (!techUpdateService.shouldNotifyRelease(releaseId)) return
+        techUpdateService.enabledChatIds().forEach { chatId ->
+            runCatching {
+                bot.sendMessage(
+                    chatId = com.github.kotlintelegrambot.entities.ChatId.fromId(chatId),
+                    text = "Вышло обновление!",
+                )
+            }
         }
     }
 

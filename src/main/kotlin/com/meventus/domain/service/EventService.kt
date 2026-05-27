@@ -105,4 +105,15 @@ class EventService(private val eventRepository: EventRepository) {
         val event = eventRepository.findById(eventId) ?: return
         eventRepository.save(event.copy(status = EventStatus.CANCELLED))
     }
+
+    fun delete(eventId: Long, ownerId: Long): Boolean {
+        val existing = eventRepository.findById(eventId) ?: return false
+        if (existing.ownerId != ownerId) return false
+        eventRepository.delete(eventId)
+        return true
+    }
+
+    fun deleteInternal(eventId: Long) {
+        eventRepository.delete(eventId)
+    }
 }

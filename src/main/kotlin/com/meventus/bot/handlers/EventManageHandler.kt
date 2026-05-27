@@ -13,6 +13,7 @@ import com.meventus.bot.states.UserState
 import com.meventus.domain.model.Event
 import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.EventVisibility
+import com.meventus.domain.service.CustomReminderService
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
 import com.meventus.domain.service.UserService
@@ -22,6 +23,7 @@ class EventManageHandler(
     private val eventService: EventService,
     private val participantService: ParticipantService,
     private val userService: UserService,
+    private val customReminderService: CustomReminderService,
     private val stateStorage: StateStorage,
 ) {
     fun register(dispatcher: Dispatcher) {
@@ -99,6 +101,33 @@ class EventManageHandler(
                     showParticipants(bot, ChatId.fromId(chatId), messageId, event)
                 }
 
+                data.startsWith("ereminder:") -> {
+                    val eventId = data.removePrefix("ereminder:").toLongOrNull() ?: return@callbackQuery
+                    val event = ownedEvent(eventId, userId) ?: run {
+                        bot.answerCallbackQuery(callbackQuery.id, "Нет доступа")
+                        return@callbackQuery
+                    }
+                    stateStorage.set(userId, UserState.AwaitingCustomReminderTime(event.id))
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.sendMessage(
+                        chatId = ChatId.fromId(chatId),
+                        text = """
+                            ⏰ *Кастомное уведомление*
+
+                            Напиши, за сколько до начала отправить уведомление.
+
+                            Примеры:
+                            `1ч`
+                            `30м`
+                            `5с`
+                            `01:30:00`
+
+                            Для группового события уведомление уйдёт в группу. Для личного — участникам и организатору.
+                        """.trimIndent(),
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                }
+
                 data.startsWith("eremove:") -> {
                     val parts = data.removePrefix("eremove:").split(":")
                     val eventId = parts.getOrNull(0)?.toLongOrNull() ?: return@callbackQuery
@@ -136,29 +165,129 @@ class EventManageHandler(
                         parseMode = ParseMode.MARKDOWN,
                     )
                 }
+
+                data.startsWith("edeleteask:") -> {
+                    val eventId = data.removePrefix("edeleteask:").toLongOrNull() ?: return@callbackQuery
+                    val event = ownedEvent(eventId, userId) ?: run {
+                        bot.answerCallbackQuery(callbackQuery.id, "Нет доступа")
+                        return@callbackQuery
+                    }
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = "Удалить *${event.title}* навсегда?\n\nЭто удалит мероприятие, участников и теги. Отменить действие будет нельзя.",
+                        parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = InlineKeyboardMarkup.create(
+                            listOf(
+                                listOf(InlineKeyboardButton.CallbackData("Да, удалить", "edelete:${event.id}")),
+                                listOf(InlineKeyboardButton.CallbackData("← Оставить", "manage:${event.id}")),
+                            ),
+                        ),
+                    )
+                }
+
+                data.startsWith("edelete:") -> {
+                    val eventId = data.removePrefix("edelete:").toLongOrNull() ?: return@callbackQuery
+                    val event = ownedEvent(eventId, userId) ?: run {
+                        bot.answerCallbackQuery(callbackQuery.id, "Нет доступа")
+                        return@callbackQuery
+                    }
+                    val groupChatId = event.groupChatId
+                    val deleted = eventService.delete(eventId, userId)
+                    if (!deleted) {
+                        bot.answerCallbackQuery(callbackQuery.id, "Не удалось удалить")
+                        return@callbackQuery
+                    }
+                    bot.answerCallbackQuery(callbackQuery.id, "Мероприятие удалено")
+                    if (groupChatId != null) {
+                        runCatching {
+                            bot.sendMessage(
+                                chatId = ChatId.fromId(groupChatId),
+                                text = "Мероприятие *${event.title}* удалено.",
+                                parseMode = ParseMode.MARKDOWN,
+                            )
+                        }
+                    }
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = "Удалено: *${event.title}*.",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                }
             }
         }
 
         dispatcher.text {
             val userId = message.from?.id ?: return@text
-            val state = stateStorage.get(userId) as? UserState.AwaitingEventEdit ?: return@text
+            val state = stateStorage.get(userId)
+            if (state !is UserState.AwaitingEventEdit &&
+                state !is UserState.AwaitingCustomReminderTime &&
+                state !is UserState.AwaitingCustomReminderMessage
+            ) {
+                return@text
+            }
             val text = message.text?.trim() ?: return@text
             val chatId = ChatId.fromId(message.chat.id)
 
             if (text == "/cancel" || text.equals("отмена", ignoreCase = true)) {
                 stateStorage.clear(userId)
-                bot.sendMessage(chatId, "Редактирование отменено.")
+                bot.sendMessage(chatId, "Действие отменено.")
                 return@text
             }
 
-            val event = ownedEvent(state.eventId, userId)
+            if (state is UserState.AwaitingCustomReminderTime) {
+                val event = ownedEvent(state.eventId, userId)
+                if (event == null) {
+                    stateStorage.clear(userId)
+                    bot.sendMessage(chatId, "Мероприятие не найдено или у вас нет доступа.")
+                    return@text
+                }
+                val secondsBefore = parseReminderOffset(text)
+                if (secondsBefore == null || secondsBefore < 0) {
+                    bot.sendMessage(
+                        chatId = chatId,
+                        text = "Не понял время. Напиши, например: `1ч`, `30м`, `5с` или `01:30:00`.",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                    return@text
+                }
+                stateStorage.set(userId, UserState.AwaitingCustomReminderMessage(state.eventId, secondsBefore))
+                bot.sendMessage(
+                    chatId = chatId,
+                    text = "Теперь напиши текст уведомления.\n\nНапример: `Через час начинаем, не забудьте ноутбук.`",
+                    parseMode = ParseMode.MARKDOWN,
+                )
+                return@text
+            }
+
+            if (state is UserState.AwaitingCustomReminderMessage) {
+                val event = ownedEvent(state.eventId, userId)
+                if (event == null) {
+                    stateStorage.clear(userId)
+                    bot.sendMessage(chatId, "Мероприятие не найдено или у вас нет доступа.")
+                    return@text
+                }
+                customReminderService.create(event.id, state.secondsBefore, text)
+                stateStorage.clear(userId)
+                bot.sendMessage(
+                    chatId = chatId,
+                    text = "✅ Уведомление добавлено: за ${formatOffset(state.secondsBefore)} до *${event.title}*.",
+                    parseMode = ParseMode.MARKDOWN,
+                )
+                return@text
+            }
+
+            val editState = state as UserState.AwaitingEventEdit
+            val event = ownedEvent(editState.eventId, userId)
             if (event == null) {
                 stateStorage.clear(userId)
                 bot.sendMessage(chatId, "Мероприятие не найдено или у вас нет доступа.")
                 return@text
             }
 
-            val updated = when (state.field) {
+            val updated = when (editState.field) {
                 "title" -> saveEvent(event.copy(title = text))
                 "short" -> saveEvent(event.copy(shortDescription = text))
                 "desc" -> saveEvent(event.copy(description = text))
@@ -251,12 +380,18 @@ class EventManageHandler(
                         InlineKeyboardButton.CallbackData("👥 Участники", "eparticipants:${event.id}"),
                     ),
                     listOf(
+                        InlineKeyboardButton.CallbackData("⏰ Напоминание", "ereminder:${event.id}"),
+                    ),
+                    listOf(
                         InlineKeyboardButton.CallbackData("🌍/🔒 Видимость", "etogglevis:${event.id}"),
                         InlineKeyboardButton.CallbackData("✅/🔐 Запись", "etogglereg:${event.id}"),
                     ),
                     listOf(
                         InlineKeyboardButton.CallbackData("📢 Уведомить", "bcast:${event.id}"),
                         InlineKeyboardButton.CallbackData("🗑 Снять", "ecancel:${event.id}"),
+                    ),
+                    listOf(
+                        InlineKeyboardButton.CallbackData("Удалить навсегда", "edeleteask:${event.id}"),
                     ),
                 ),
             ),
@@ -318,5 +453,31 @@ class EventManageHandler(
                 parseMode = ParseMode.MARKDOWN,
             )
         }
+    }
+
+    private fun parseReminderOffset(raw: String): Long? {
+        val text = raw.trim().lowercase()
+        val hms = Regex("""^(\d{1,2}):(\d{2})(?::(\d{2}))?$""").matchEntire(text)
+        if (hms != null) {
+            val hours = hms.groupValues[1].toLong()
+            val minutes = hms.groupValues[2].toLong()
+            val seconds = hms.groupValues.getOrNull(3)?.takeIf { it.isNotBlank() }?.toLong() ?: 0
+            return hours * 3600 + minutes * 60 + seconds
+        }
+        val compact = Regex("""^(\d+)\s*(с|сек|секунд|m|м|мин|минут|h|ч|час|часа|часов)$""").matchEntire(text)
+            ?: return text.toLongOrNull()?.let { it * 60 }
+        val amount = compact.groupValues[1].toLong()
+        return when (compact.groupValues[2]) {
+            "с", "сек", "секунд" -> amount
+            "m", "м", "мин", "минут" -> amount * 60
+            "h", "ч", "час", "часа", "часов" -> amount * 3600
+            else -> null
+        }
+    }
+
+    private fun formatOffset(seconds: Long): String = when {
+        seconds % 3600 == 0L -> "${seconds / 3600} ч"
+        seconds % 60 == 0L -> "${seconds / 60} мин"
+        else -> "$seconds сек"
     }
 }

@@ -296,6 +296,7 @@
     <div class="edit-actions">
       <button class="btn-save" onclick="saveEdit()">💾 СОХРАНИТЬ</button>
       <button class="btn-cancel-edit" onclick="closeEdit()">ОТМЕНА</button>
+      <button class="btn-cancel-edit" id="deleteEventBtn" style="border-color:var(--red);color:var(--red)" onclick="deleteEvent()">УДАЛИТЬ</button>
     </div>
     <div class="edit-msg" id="editMsg"></div>
   </div>
@@ -612,6 +613,7 @@
     document.getElementById('editSbpPhone').value = e.sbpPhone || '';
     document.getElementById('editSbpName').value = e.sbpName || '';
     document.getElementById('editMsg').textContent = '';
+    document.getElementById('deleteEventBtn').style.display = e.id ? 'inline-block' : 'none';
 
     // datetime-local expects "YYYY-MM-DDTHH:MM" in the user's local timezone.
     var d = new Date(e.startsAt);
@@ -685,6 +687,39 @@
           setTimeout(function() { closeEdit(); loadAdmin(); }, 800);
         } else {
           document.getElementById('editMsg').textContent = '⚠ ' + (data.error || 'Ошибка');
+          document.getElementById('editMsg').style.color = 'var(--red)';
+        }
+      })
+      .catch(function() {
+        document.getElementById('editMsg').textContent = '⚠ Ошибка соединения';
+        document.getElementById('editMsg').style.color = 'var(--red)';
+      });
+  }
+
+  function deleteEvent() {
+    var id = document.getElementById('editId').value;
+    var title = document.getElementById('editTitle').value.trim() || 'мероприятие';
+    if (!id) return;
+    if (!confirm('Удалить "' + title + '" навсегда? Участники и теги тоже будут удалены.')) return;
+
+    document.getElementById('editMsg').textContent = 'Удаляю...';
+    document.getElementById('editMsg').style.color = 'var(--text-dim)';
+
+    fetch('/api/event/delete', {
+      method: 'POST',
+      headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}),
+      body: 'id=' + encodeURIComponent(id)
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          document.getElementById('editMsg').textContent = '✅ Удалено';
+          document.getElementById('editMsg').style.color = 'var(--green)';
+          adminLoaded = false;
+          mineLoaded = false;
+          setTimeout(function() { closeEdit(); loadAdmin(); }, 500);
+        } else {
+          document.getElementById('editMsg').textContent = '⚠ ' + (data.error || 'Ошибка удаления');
           document.getElementById('editMsg').style.color = 'var(--red)';
         }
       })

@@ -63,22 +63,22 @@ class EventCreateHandler(
 
                 is UserState.AwaitingEventTitle -> {
                     stateStorage.set(userId, UserState.AwaitingEventShortDesc(text, state.visibility, state.registrationMode, state.groupChatId))
-                    bot.sendMessage(chatId, "Шаг 2/8 — введи *краткое описание* для карточки.\nНапример: `Встречаемся обсудить проекты и познакомиться`", parseMode = ParseMode.MARKDOWN)
+                    sendHelpableStep(bot, chatId, "short")
                 }
 
                 is UserState.AwaitingEventShortDesc -> {
                     stateStorage.set(userId, UserState.AwaitingEventDescription(state.title, text, state.visibility, state.registrationMode, state.groupChatId))
-                    bot.sendMessage(chatId, "Шаг 3/8 — введи *полное описание*: что будет, кому подойдёт, что взять с собой.", parseMode = ParseMode.MARKDOWN)
+                    sendHelpableStep(bot, chatId, "description")
                 }
 
                 is UserState.AwaitingEventDescription -> {
                     stateStorage.set(userId, UserState.AwaitingEventAddress(state.title, state.shortDesc, text, state.visibility, state.registrationMode, state.groupChatId))
-                    bot.sendMessage(chatId, "Шаг 4/8 — введи *адрес*.\nНапример: `Москва, Тверская 1` или `онлайн`.", parseMode = ParseMode.MARKDOWN)
+                    sendHelpableStep(bot, chatId, "address")
                 }
 
                 is UserState.AwaitingEventAddress -> {
                     stateStorage.set(userId, UserState.AwaitingEventDate(state.title, state.shortDesc, state.description, text, state.visibility, state.registrationMode, state.groupChatId))
-                    bot.sendMessage(chatId, "Шаг 5/8 — введи *дату и время*.\nФормат: `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
+                    sendHelpableStep(bot, chatId, "date")
                 }
 
                 is UserState.AwaitingEventDate -> {
@@ -88,7 +88,7 @@ class EventCreateHandler(
                         return@text
                     }
                     stateStorage.set(userId, UserState.AwaitingEventCost(state.title, state.shortDesc, state.description, state.address, text, state.visibility, state.registrationMode, state.groupChatId))
-                    bot.sendMessage(chatId, "Шаг 6/8 — введи *стоимость* в рублях.\n`0` — если бесплатно.", parseMode = ParseMode.MARKDOWN)
+                    sendHelpableStep(bot, chatId, "cost")
                 }
 
                 is UserState.AwaitingEventCost -> {
@@ -97,12 +97,29 @@ class EventCreateHandler(
                         bot.sendMessage(chatId, "Введите целое число ≥ 0")
                         return@text
                     }
+                    if (cost == 0L) {
+                        val nextState = UserState.AwaitingEventPhoto(
+                            title = state.title,
+                            shortDesc = state.shortDesc,
+                            description = state.description,
+                            address = state.address,
+                            startsAt = state.startsAt,
+                            cost = cost,
+                            paymentType = PaymentType.ON_SITE,
+                            visibility = state.visibility,
+                            registrationMode = state.registrationMode,
+                            groupChatId = state.groupChatId,
+                        )
+                        stateStorage.set(userId, nextState)
+                        sendPhotoStep(bot, chatId)
+                        return@text
+                    }
                     stateStorage.set(userId, UserState.AwaitingEventPaymentType(
                         state.title, state.shortDesc, state.description, state.address, state.startsAt, cost, state.visibility, state.registrationMode, state.groupChatId,
                     ))
                     bot.sendMessage(
                         chatId = chatId,
-                        text = "Шаг 7/8 — выбери *способ оплаты*.",
+                        text = stepText("payment", expanded = false),
                         parseMode = ParseMode.MARKDOWN,
                         replyMarkup = paymentKeyboard(),
                     )
@@ -116,7 +133,7 @@ class EventCreateHandler(
                         state.title, state.shortDesc, state.description, state.address,
                         state.startsAt, state.cost, phone, state.visibility, state.registrationMode, state.groupChatId,
                     ))
-                    bot.sendMessage(chatId, "Теперь введи *имя получателя* как в СБП.", parseMode = ParseMode.MARKDOWN)
+                    sendHelpableStep(bot, chatId, "sbpName")
                 }
 
                 is UserState.AwaitingEventSbpName -> {
@@ -129,24 +146,27 @@ class EventCreateHandler(
                         registrationMode = state.registrationMode,
                         groupChatId = state.groupChatId,
                     ))
-                    bot.sendMessage(
-                        chatId = chatId,
-                        text = "Шаг 8/8 — отправь *фото* мероприятия или напиши `пропустить`.",
-                        parseMode = ParseMode.MARKDOWN,
-                    )
+                    sendPhotoStep(bot, chatId)
                 }
 
                 is UserState.AwaitingEventPhoto -> {
                     if (text.trim().lowercase() == "пропустить") {
                         showTagSelection(bot, chatId, userId, state, photoFileId = null)
                     } else {
-                        bot.sendMessage(chatId, "Отправьте фото или напишите `пропустить`", parseMode = ParseMode.MARKDOWN)
+                        bot.sendMessage(
+                            chatId = chatId,
+                            text = "Отправь фото следующим сообщением или нажми *Пропустить*.",
+                            parseMode = ParseMode.MARKDOWN,
+                            replyMarkup = photoKeyboard(),
+                        )
                     }
                 }
 
                 is UserState.AwaitingEventTags -> return@text
                 is UserState.AwaitingBroadcast -> return@text
                 is UserState.AwaitingEventEdit -> return@text
+                is UserState.AwaitingCustomReminderTime -> return@text
+                is UserState.AwaitingCustomReminderMessage -> return@text
                 is UserState.AwaitingPaymentPhone -> return@text
                 is UserState.AwaitingPaymentName -> return@text
             }
@@ -169,6 +189,20 @@ class EventCreateHandler(
             val messageId = callbackQuery.message?.messageId ?: return@callbackQuery
 
             when {
+                data.startsWith("chelp:") -> {
+                    val parts = data.removePrefix("chelp:").split(":")
+                    val step = parts.getOrNull(0) ?: return@callbackQuery
+                    val expanded = parts.getOrNull(1) == "open"
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = stepText(step, expanded),
+                        parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = stepKeyboardFor(step, expanded, userId),
+                    )
+                }
+
                 data.startsWith("cvis:") -> {
                     val visibility = when (data.removePrefix("cvis:")) {
                         "PRIVATE" -> EventVisibility.PRIVATE
@@ -180,7 +214,7 @@ class EventCreateHandler(
                     bot.editMessageText(
                         chatId = ChatId.fromId(chatId),
                         messageId = messageId,
-                        text = "Теперь выбери режим записи.",
+                        text = stepText("registration", expanded = false),
                         parseMode = ParseMode.MARKDOWN,
                         replyMarkup = registrationKeyboard(),
                     )
@@ -199,8 +233,9 @@ class EventCreateHandler(
                     bot.editMessageText(
                         chatId = ChatId.fromId(chatId),
                         messageId = messageId,
-                        text = "Создаём *$visibilityText* мероприятие, запись: *$registrationText*.\n\nШаг 1/8 — введи *название*:",
+                        text = "Создаём *$visibilityText* мероприятие, запись: *$registrationText*.\n\n" + stepText("title", expanded = false),
                         parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = helpOnlyKeyboard("title"),
                     )
                 }
 
@@ -269,6 +304,23 @@ class EventCreateHandler(
                     }
                 }
 
+                data.startsWith("cphoto:") -> {
+                    val state = stateStorage.get(userId) as? UserState.AwaitingEventPhoto ?: return@callbackQuery
+                    val action = data.removePrefix("cphoto:")
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    if (action == "skip") {
+                        showTagSelection(bot, ChatId.fromId(chatId), userId, state, photoFileId = null)
+                    } else {
+                        bot.editMessageText(
+                            chatId = ChatId.fromId(chatId),
+                            messageId = messageId,
+                            text = stepText("photoWait", expanded = false),
+                            parseMode = ParseMode.MARKDOWN,
+                            replyMarkup = photoKeyboard(),
+                        )
+                    }
+                }
+
                 data.startsWith("cpaytype:") -> {
                     val state = stateStorage.get(userId) as? UserState.AwaitingEventPaymentType ?: return@callbackQuery
                     val type = data.removePrefix("cpaytype:")
@@ -285,8 +337,9 @@ class EventCreateHandler(
                         ))
                         bot.editMessageText(
                             chatId = ChatId.fromId(chatId), messageId = messageId,
-                            text = "Шаг 8/8 — отправь *фото* мероприятия или напиши `пропустить`.",
+                            text = stepText("photo", expanded = false),
                             parseMode = ParseMode.MARKDOWN,
+                            replyMarkup = photoKeyboard(),
                         )
                     } else {
                         stateStorage.set(userId, UserState.AwaitingEventSbpPhone(
@@ -295,8 +348,9 @@ class EventCreateHandler(
                         ))
                         bot.editMessageText(
                             chatId = ChatId.fromId(chatId), messageId = messageId,
-                            text = "Введи *номер телефона* для приёма СБП.\nНапример: `+79991234567`",
+                            text = stepText("sbpPhone", expanded = false),
                             parseMode = ParseMode.MARKDOWN,
+                            replyMarkup = helpOnlyKeyboard("sbpPhone"),
                         )
                     }
                 }
@@ -304,23 +358,135 @@ class EventCreateHandler(
         }
     }
 
-    private fun paymentKeyboard() = InlineKeyboardMarkup.create(
+    private fun paymentKeyboard(expanded: Boolean = false) = InlineKeyboardMarkup.create(
         listOf(
             listOf(
                 InlineKeyboardButton.CallbackData("💵 На месте", "cpaytype:onsite"),
                 InlineKeyboardButton.CallbackData("💳 Заранее (СБП)", "cpaytype:advance"),
             ),
+            listOf(helpButton("payment", expanded)),
         ),
     )
 
-    private fun registrationKeyboard() = InlineKeyboardMarkup.create(
+    private fun registrationKeyboard(expanded: Boolean = false) = InlineKeyboardMarkup.create(
         listOf(
             listOf(
                 InlineKeyboardButton.CallbackData("✅ Свободная запись", "creg:FREE"),
                 InlineKeyboardButton.CallbackData("🔐 По приглашению", "creg:INVITE_ONLY"),
             ),
+            listOf(helpButton("registration", expanded)),
         ),
     )
+
+    private fun visibilityKeyboard(expanded: Boolean = false) = InlineKeyboardMarkup.create(
+        listOf(
+            listOf(
+                InlineKeyboardButton.CallbackData("🌍 Публичное", "cvis:PUBLIC"),
+                InlineKeyboardButton.CallbackData("🔒 Приватное", "cvis:PRIVATE"),
+            ),
+            listOf(helpButton("visibility", expanded)),
+        ),
+    )
+
+    private fun photoKeyboard(expanded: Boolean = false) = InlineKeyboardMarkup.create(
+        listOf(
+            listOf(
+                InlineKeyboardButton.CallbackData("📷 Добавить фото", "cphoto:add"),
+                InlineKeyboardButton.CallbackData("⏭ Пропустить", "cphoto:skip"),
+            ),
+            listOf(helpButton("photo", expanded)),
+        ),
+    )
+
+    private fun sendPhotoStep(bot: com.github.kotlintelegrambot.Bot, chatId: ChatId) {
+        bot.sendMessage(
+            chatId = chatId,
+            text = stepText("photo", expanded = false),
+            parseMode = ParseMode.MARKDOWN,
+            replyMarkup = photoKeyboard(),
+        )
+    }
+
+    private fun sendHelpableStep(bot: com.github.kotlintelegrambot.Bot, chatId: ChatId, step: String) {
+        bot.sendMessage(
+            chatId = chatId,
+            text = stepText(step, expanded = false),
+            parseMode = ParseMode.MARKDOWN,
+            replyMarkup = helpOnlyKeyboard(step),
+        )
+    }
+
+    private fun helpOnlyKeyboard(step: String, expanded: Boolean = false) =
+        InlineKeyboardMarkup.create(listOf(helpButton(step, expanded)))
+
+    private fun helpButton(step: String, expanded: Boolean) = InlineKeyboardButton.CallbackData(
+        if (expanded) "Свернуть подсказку" else "ℹ️ Что это значит?",
+        "chelp:$step:${if (expanded) "close" else "open"}",
+    )
+
+    private fun stepKeyboardFor(step: String, expanded: Boolean, userId: Long): InlineKeyboardMarkup = when (step) {
+        "visibility" -> visibilityKeyboard(expanded)
+        "registration" -> registrationKeyboard(expanded)
+        "payment" -> paymentKeyboard(expanded)
+        "photo", "photoWait" -> photoKeyboard(expanded)
+        "tags" -> {
+            val selected = (stateStorage.get(userId) as? UserState.AwaitingEventTags)?.selectedTags.orEmpty()
+            TagKeyboard.forCreate(selected, helpExpanded = expanded)
+        }
+        else -> helpOnlyKeyboard(step, expanded)
+    }
+
+    private fun stepText(step: String, expanded: Boolean): String {
+        val base = when (step) {
+            "visibility" -> "Выбери, *где будет видно* мероприятие."
+            "registration" -> "Теперь выбери, *как люди смогут записаться*."
+            "title" -> "Шаг 1/8 — введи *название*.\nНапример: `Kotlin meetup`"
+            "short" -> "Шаг 2/8 — введи *краткое описание* для карточки.\nНапример: `Встречаемся обсудить проекты и познакомиться`"
+            "description" -> "Шаг 3/8 — введи *полное описание*: что будет, кому подойдёт, что взять с собой."
+            "address" -> "Шаг 4/8 — введи *адрес*.\nНапример: `Москва, Тверская 1` или `онлайн`."
+            "date" -> "Шаг 5/8 — введи *дату и время*.\nФормат: `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`"
+            "cost" -> "Шаг 6/8 — введи *стоимость* в рублях.\n`0` — если бесплатно."
+            "payment" -> "Шаг 7/8 — выбери *способ оплаты*."
+            "sbpPhone" -> "Введи *номер телефона* для приёма СБП.\nНапример: `+79991234567`"
+            "sbpName" -> "Теперь введи *имя получателя* как в СБП."
+            "photo", "photoWait" -> "Фото мероприятия — добавь картинку или пропусти этот шаг."
+            "tags" -> "Последний шаг — выбери *теги*, чтобы людям было проще найти мероприятие. Можно несколько. Потом нажми *Готово*."
+            else -> "Продолжи создание мероприятия."
+        }
+        if (!expanded) return base
+        return base + "\n\n" + stepHelp(step)
+    }
+
+    private fun stepHelp(step: String): String = when (step) {
+        "visibility" -> """
+*Подсказка*
+Это отвечает на вопрос: кто вообще увидит событие.
+
+*Публичное* — попадёт в общую ленту /events и Mini App.
+*Приватное* — не попадёт в общую ленту. Для группы это значит “только в календаре этой группы”.
+""".trimIndent()
+        "registration" -> """
+*Подсказка*
+Это отвечает на вопрос: кто сможет записаться.
+
+*Свободная запись* — те, кто видят событие, могут нажать “Участвовать”.
+*По приглашению* — участники добавляются организатором.
+
+Приватное + свободная запись нормально: событие не видно всем, но участники группы могут сами записаться через /gevents.
+""".trimIndent()
+        "title" -> "*Подсказка*\nНазвание должно быть коротким и узнаваемым: `Демо-день`, `Футбол в четверг`, `Созвон команды`."
+        "short" -> "*Подсказка*\nЭто текст для списка. Одной фразы достаточно: кто, зачем и почему стоит открыть карточку."
+        "description" -> "*Подсказка*\nЗдесь можно написать программу, правила, что взять с собой, для кого событие и контакты организатора."
+        "address" -> "*Подсказка*\nМожно указать физический адрес, кабинет, ссылку на созвон или просто `онлайн`."
+        "date" -> "*Подсказка*\nПиши дату в московском формате: `27.05.2026 19:30`. Бот использует её для напоминаний."
+        "cost" -> "*Подсказка*\nЕсли событие бесплатное, введи `0`. Тогда бот не будет спрашивать способ оплаты."
+        "payment" -> "*Подсказка*\n`На месте` — человек сразу становится участником. `Заранее через СБП` — бот покажет реквизиты и попросит подтверждение перевода."
+        "sbpPhone" -> "*Подсказка*\nЭто номер, который участники увидят перед оплатой. Он нужен только для платных событий с оплатой заранее."
+        "sbpName" -> "*Подсказка*\nИмя получателя помогает участнику проверить, что перевод уходит правильному человеку."
+        "photo", "photoWait" -> "*Подсказка*\nФото необязательно. Оно делает карточку заметнее, но если картинки нет — спокойно нажимай `Пропустить`."
+        "tags" -> "*Подсказка*\nТеги помогают фильтровать ленту. Выбери 1-2 главных темы, лишние теги лучше не ставить."
+        else -> "*Подсказка*\nМожно продолжить в чате или отменить сценарий командой /cancel."
+    }
 
     private fun showTagSelection(
         bot: com.github.kotlintelegrambot.Bot,
@@ -349,7 +515,7 @@ class EventCreateHandler(
         )
         bot.sendMessage(
             chatId = chatId,
-            text = "Последний шаг — выбери *теги*, чтобы людям было проще найти мероприятие. Можно несколько. Потом нажми *Готово*.",
+            text = stepText("tags", expanded = false),
             parseMode = ParseMode.MARKDOWN,
             replyMarkup = TagKeyboard.forCreate(emptySet()),
         )
