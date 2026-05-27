@@ -8,11 +8,13 @@ import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
 import com.github.kotlintelegrambot.entities.keyboard.WebAppInfo
 import com.meventus.bot.commands.ListEventsCommand
+import com.meventus.bot.keyboards.CreateEventKeyboard
 import com.meventus.bot.messages.Messages
 import com.meventus.bot.states.StateStorage
 import com.meventus.bot.states.UserState
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
+import com.meventus.util.DateUtils
 
 val MENU_BUTTONS = mapOf(
     "📋 Мероприятия" to "events",
@@ -37,6 +39,7 @@ class MenuKeyboardHandler(
         dispatcher.text {
             val userId = message.from?.id ?: return@text
             val text = message.text ?: return@text
+            if (message.chat.id < 0) return@text
             if (stateStorage.get(userId) !is UserState.Idle) return@text
 
             val chatId = ChatId.fromId(message.chat.id)
@@ -63,22 +66,46 @@ class MenuKeyboardHandler(
                         )
                         return@text
                     }
-                    if (joined.isNotEmpty()) {
-                        bot.sendMessage(chatId, "*Вы участвуете:*", parseMode = ParseMode.MARKDOWN)
-                        joined.forEach { ListEventsCommand.sendEventCard(bot, chatId, it, participantService, userId) }
+                    val body = buildString {
+                        appendLine("*Мои мероприятия*")
+                        appendLine("Открой карточку или управление кнопкой ниже.")
+                        appendLine()
+                        if (joined.isNotEmpty()) {
+                            appendLine("*Участвую:*")
+                            joined.forEachIndexed { index, event ->
+                                appendLine("${index + 1}. ${event.title} · ${DateUtils.format(event.startsAt)}")
+                            }
+                            appendLine()
+                        }
+                        if (owned.isNotEmpty()) {
+                            appendLine("*Организую:*")
+                            owned.forEachIndexed { index, event ->
+                                appendLine("${index + 1}. ${event.title} · ${DateUtils.format(event.startsAt)}")
+                            }
+                        }
                     }
-                    if (owned.isNotEmpty()) {
-                        bot.sendMessage(chatId, "*Вы организуете:*", parseMode = ParseMode.MARKDOWN)
-                        owned.forEach { ListEventsCommand.sendEventCard(bot, chatId, it, participantService, userId) }
+                    val rows = mutableListOf<List<InlineKeyboardButton>>()
+                    joined.forEach { event ->
+                        rows += listOf(InlineKeyboardButton.CallbackData("Открыть: ${event.title.take(24)}", "edetail:${event.id}"))
                     }
+                    owned.forEach { event ->
+                        rows += listOf(InlineKeyboardButton.CallbackData("Управлять: ${event.title.take(22)}", "manage:${event.id}"))
+                    }
+                    bot.sendMessage(
+                        chatId = chatId,
+                        text = body,
+                        parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = InlineKeyboardMarkup.create(rows),
+                    )
                 }
 
                 "➕ Создать событие", "➕ Создать" -> {
                     stateStorage.set(userId, UserState.AwaitingEventTitle())
                     bot.sendMessage(
                         chatId,
-                        "Создаём *публичное* мероприятие.\n\nЕсли нужно приватное, напиши /cancel и затем /new private.\n\nШаг 1/8 — введи *название*:",
+                        "Создание мероприятия.\n\nВ Mini App удобнее: там форма, редактирование и админ-панель. Но можно полностью продолжить в чате — сначала выбери видимость.",
                         parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = CreateEventKeyboard.entry(webAppUrl),
                     )
                 }
 

@@ -38,13 +38,12 @@ class GroupEventHandler(
             val normalized = text.lowercase()
 
             when {
-                command in setOf("/ghelp", "/group_help") ||
-                    (mentionsBot && ("помощ" in normalized || "как" in normalized)) -> {
+                command in setOf("/help", "/ghelp", "/group_help", "/stats", "/my", "/broadcast", "/start", "/cancel") ||
+                    (mentionsBot && ("помощ" in normalized || "как" in normalized || "mini" in normalized || "web" in normalized)) -> {
                     MessageCleaner.deleteLater(bot, chatId, message.messageId, 20)
-                    sendTemporary(bot, ChatId.fromId(chatId), chatId, Messages.GROUP_HELP, 180)
                 }
 
-                command in setOf("/gevents", "/group_events") ||
+                command in setOf("/gevents", "/group_events", "/events") ||
                     (mentionsBot && ("мероприят" in normalized || "событ" in normalized || "афиша" in normalized)) -> {
                     MessageCleaner.deleteLater(bot, chatId, message.messageId, 20)
                     sendGroupEvents(bot, ChatId.fromId(chatId), chatId)
@@ -57,7 +56,7 @@ class GroupEventHandler(
                     inviteToGroupEvent(bot, ChatId.fromId(chatId), chatId, text, username, from.id)
                 }
 
-                command in setOf("/gnew", "/group_new") ||
+                command in setOf("/gnew", "/group_new", "/new") ||
                     (mentionsBot && ("созд" in normalized || "заплан" in normalized)) -> {
                     MessageCleaner.deleteLater(bot, chatId, message.messageId, 45)
                     userService.registerIfAbsent(from.id, from.username, from.firstName)
@@ -168,7 +167,7 @@ class GroupEventHandler(
                 bot,
                 chatId,
                 groupChatId,
-                "В этой группе пока нет ближайших мероприятий.\n\nСоздать: `/gnew Демо-день | 25.05.2026 18:00 | офис`",
+                "В этой группе пока нет ближайших мероприятий.\n\nСоздать: /gnew — я открою создание в личке и привяжу событие к этой группе.",
                 180,
             )
             return

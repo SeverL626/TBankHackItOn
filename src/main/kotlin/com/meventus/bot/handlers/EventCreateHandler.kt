@@ -11,6 +11,8 @@ import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
 import com.meventus.bot.keyboards.TagKeyboard
 import com.meventus.bot.states.StateStorage
 import com.meventus.bot.states.UserState
+import com.meventus.domain.model.EventRegistrationMode
+import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
 import com.meventus.domain.service.EventService
 import com.meventus.util.DateUtils
@@ -60,22 +62,22 @@ class EventCreateHandler(
                 is UserState.Idle -> return@text
 
                 is UserState.AwaitingEventTitle -> {
-                    stateStorage.set(userId, UserState.AwaitingEventShortDesc(text, state.visibility, state.groupChatId))
+                    stateStorage.set(userId, UserState.AwaitingEventShortDesc(text, state.visibility, state.registrationMode, state.groupChatId))
                     bot.sendMessage(chatId, "Шаг 2/8 — введи *краткое описание* для карточки.\nНапример: `Встречаемся обсудить проекты и познакомиться`", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventShortDesc -> {
-                    stateStorage.set(userId, UserState.AwaitingEventDescription(state.title, text, state.visibility, state.groupChatId))
+                    stateStorage.set(userId, UserState.AwaitingEventDescription(state.title, text, state.visibility, state.registrationMode, state.groupChatId))
                     bot.sendMessage(chatId, "Шаг 3/8 — введи *полное описание*: что будет, кому подойдёт, что взять с собой.", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventDescription -> {
-                    stateStorage.set(userId, UserState.AwaitingEventAddress(state.title, state.shortDesc, text, state.visibility, state.groupChatId))
+                    stateStorage.set(userId, UserState.AwaitingEventAddress(state.title, state.shortDesc, text, state.visibility, state.registrationMode, state.groupChatId))
                     bot.sendMessage(chatId, "Шаг 4/8 — введи *адрес*.\nНапример: `Москва, Тверская 1` или `онлайн`.", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventAddress -> {
-                    stateStorage.set(userId, UserState.AwaitingEventDate(state.title, state.shortDesc, state.description, text, state.visibility, state.groupChatId))
+                    stateStorage.set(userId, UserState.AwaitingEventDate(state.title, state.shortDesc, state.description, text, state.visibility, state.registrationMode, state.groupChatId))
                     bot.sendMessage(chatId, "Шаг 5/8 — введи *дату и время*.\nФормат: `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
                 }
 
@@ -85,7 +87,7 @@ class EventCreateHandler(
                         bot.sendMessage(chatId, "Неверный формат. Введите дату так: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
                         return@text
                     }
-                    stateStorage.set(userId, UserState.AwaitingEventCost(state.title, state.shortDesc, state.description, state.address, text, state.visibility, state.groupChatId))
+                    stateStorage.set(userId, UserState.AwaitingEventCost(state.title, state.shortDesc, state.description, state.address, text, state.visibility, state.registrationMode, state.groupChatId))
                     bot.sendMessage(chatId, "Шаг 6/8 — введи *стоимость* в рублях.\n`0` — если бесплатно.", parseMode = ParseMode.MARKDOWN)
                 }
 
@@ -96,7 +98,7 @@ class EventCreateHandler(
                         return@text
                     }
                     stateStorage.set(userId, UserState.AwaitingEventPaymentType(
-                        state.title, state.shortDesc, state.description, state.address, state.startsAt, cost, state.visibility, state.groupChatId,
+                        state.title, state.shortDesc, state.description, state.address, state.startsAt, cost, state.visibility, state.registrationMode, state.groupChatId,
                     ))
                     bot.sendMessage(
                         chatId = chatId,
@@ -112,7 +114,7 @@ class EventCreateHandler(
                     val phone = text.trim()
                     stateStorage.set(userId, UserState.AwaitingEventSbpName(
                         state.title, state.shortDesc, state.description, state.address,
-                        state.startsAt, state.cost, phone, state.visibility, state.groupChatId,
+                        state.startsAt, state.cost, phone, state.visibility, state.registrationMode, state.groupChatId,
                     ))
                     bot.sendMessage(chatId, "Теперь введи *имя получателя* как в СБП.", parseMode = ParseMode.MARKDOWN)
                 }
@@ -124,6 +126,7 @@ class EventCreateHandler(
                         address = state.address, startsAt = state.startsAt, cost = state.cost,
                         paymentType = PaymentType.ADVANCE, sbpPhone = state.sbpPhone, sbpName = sbpName,
                         visibility = state.visibility,
+                        registrationMode = state.registrationMode,
                         groupChatId = state.groupChatId,
                     ))
                     bot.sendMessage(
@@ -143,6 +146,7 @@ class EventCreateHandler(
 
                 is UserState.AwaitingEventTags -> return@text
                 is UserState.AwaitingBroadcast -> return@text
+                is UserState.AwaitingEventEdit -> return@text
                 is UserState.AwaitingPaymentPhone -> return@text
                 is UserState.AwaitingPaymentName -> return@text
             }
@@ -165,6 +169,41 @@ class EventCreateHandler(
             val messageId = callbackQuery.message?.messageId ?: return@callbackQuery
 
             when {
+                data.startsWith("cvis:") -> {
+                    val visibility = when (data.removePrefix("cvis:")) {
+                        "PRIVATE" -> EventVisibility.PRIVATE
+                        else -> EventVisibility.PUBLIC
+                    }
+                    val current = stateStorage.get(userId) as? UserState.AwaitingEventTitle ?: return@callbackQuery
+                    stateStorage.set(userId, current.copy(visibility = visibility))
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = "Теперь выбери режим записи.",
+                        parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = registrationKeyboard(),
+                    )
+                }
+
+                data.startsWith("creg:") -> {
+                    val registrationMode = when (data.removePrefix("creg:")) {
+                        "INVITE_ONLY" -> EventRegistrationMode.INVITE_ONLY
+                        else -> EventRegistrationMode.FREE
+                    }
+                    val current = stateStorage.get(userId) as? UserState.AwaitingEventTitle ?: return@callbackQuery
+                    stateStorage.set(userId, current.copy(registrationMode = registrationMode))
+                    val visibilityText = if (current.visibility == EventVisibility.PRIVATE) "приватное" else "публичное"
+                    val registrationText = if (registrationMode == EventRegistrationMode.INVITE_ONLY) "по приглашению" else "со свободной записью"
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = "Создаём *$visibilityText* мероприятие, запись: *$registrationText*.\n\nШаг 1/8 — введи *название*:",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                }
+
                 data.startsWith("ctag:") -> {
                     val state = stateStorage.get(userId) as? UserState.AwaitingEventTags ?: return@callbackQuery
                     val newTags = TagKeyboard.parseBitmask(data.removePrefix("ctag:"))
@@ -200,6 +239,7 @@ class EventCreateHandler(
                         sbpPhone = state.sbpPhone,
                         sbpName = state.sbpName,
                         visibility = state.visibility,
+                        registrationMode = state.registrationMode,
                         groupChatId = state.groupChatId,
                     )
                     stateStorage.clear(userId)
@@ -240,6 +280,7 @@ class EventCreateHandler(
                             address = state.address, startsAt = state.startsAt, cost = state.cost,
                             paymentType = PaymentType.ON_SITE,
                             visibility = state.visibility,
+                            registrationMode = state.registrationMode,
                             groupChatId = state.groupChatId,
                         ))
                         bot.editMessageText(
@@ -249,8 +290,8 @@ class EventCreateHandler(
                         )
                     } else {
                         stateStorage.set(userId, UserState.AwaitingEventSbpPhone(
-                        state.title, state.shortDesc, state.description,
-                            state.address, state.startsAt, state.cost, state.visibility, state.groupChatId,
+                            state.title, state.shortDesc, state.description,
+                            state.address, state.startsAt, state.cost, state.visibility, state.registrationMode, state.groupChatId,
                         ))
                         bot.editMessageText(
                             chatId = ChatId.fromId(chatId), messageId = messageId,
@@ -268,6 +309,15 @@ class EventCreateHandler(
             listOf(
                 InlineKeyboardButton.CallbackData("💵 На месте", "cpaytype:onsite"),
                 InlineKeyboardButton.CallbackData("💳 Заранее (СБП)", "cpaytype:advance"),
+            ),
+        ),
+    )
+
+    private fun registrationKeyboard() = InlineKeyboardMarkup.create(
+        listOf(
+            listOf(
+                InlineKeyboardButton.CallbackData("✅ Свободная запись", "creg:FREE"),
+                InlineKeyboardButton.CallbackData("🔐 По приглашению", "creg:INVITE_ONLY"),
             ),
         ),
     )
@@ -293,6 +343,7 @@ class EventCreateHandler(
                 sbpPhone = state.sbpPhone,
                 sbpName = state.sbpName,
                 visibility = state.visibility,
+                registrationMode = state.registrationMode,
                 groupChatId = state.groupChatId,
             ),
         )

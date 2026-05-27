@@ -1,6 +1,7 @@
 package com.meventus.bot.states
 
 import com.meventus.domain.model.EventTag
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
 
@@ -9,12 +10,14 @@ sealed interface UserState {
 
     data class AwaitingEventTitle(
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
     data class AwaitingEventShortDesc(
         val title: String,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -22,18 +25,21 @@ sealed interface UserState {
         val title: String,
         val shortDesc: String,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
     data class AwaitingEventAddress(
         val title: String, val shortDesc: String, val description: String,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
     data class AwaitingEventDate(
         val title: String, val shortDesc: String, val description: String, val address: String,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -41,6 +47,7 @@ sealed interface UserState {
         val title: String, val shortDesc: String, val description: String,
         val address: String, val startsAt: String,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -49,6 +56,7 @@ sealed interface UserState {
         val title: String, val shortDesc: String, val description: String,
         val address: String, val startsAt: String, val cost: Long,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -57,6 +65,7 @@ sealed interface UserState {
         val title: String, val shortDesc: String, val description: String,
         val address: String, val startsAt: String, val cost: Long,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -65,6 +74,7 @@ sealed interface UserState {
         val address: String, val startsAt: String, val cost: Long,
         val sbpPhone: String,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -76,6 +86,7 @@ sealed interface UserState {
         val sbpPhone: String? = null,
         val sbpName: String? = null,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
@@ -89,10 +100,12 @@ sealed interface UserState {
         val sbpPhone: String? = null,
         val sbpName: String? = null,
         val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         val groupChatId: Long? = null,
     ) : UserState
 
     data class AwaitingBroadcast(val eventId: Long) : UserState
+    data class AwaitingEventEdit(val eventId: Long, val field: String) : UserState
 
     // Joining — payment confirmation
     data class AwaitingPaymentPhone(val eventId: Long) : UserState

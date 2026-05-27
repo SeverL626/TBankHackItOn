@@ -1,0 +1,19 @@
+package com.meventus.bot.keyboards
+
+import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
+import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.github.kotlintelegrambot.entities.keyboard.WebAppInfo
+
+object CreateEventKeyboard {
+    fun entry(webAppUrl: String): InlineKeyboardMarkup {
+        val rows = mutableListOf<List<InlineKeyboardButton>>()
+        if (webAppUrl.startsWith("https://")) {
+            rows += listOf(InlineKeyboardButton.WebApp("🌐 Открыть Mini App", WebAppInfo(webAppUrl)))
+        }
+        rows += listOf(
+            InlineKeyboardButton.CallbackData("🌍 Публичное", "cvis:PUBLIC"),
+            InlineKeyboardButton.CallbackData("🔒 Приватное", "cvis:PRIVATE"),
+        )
+        return InlineKeyboardMarkup.create(rows)
+    }
+}

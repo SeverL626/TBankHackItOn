@@ -6,15 +6,17 @@ import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.KeyboardReplyMarkup
 import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.KeyboardButton
+import com.meventus.bot.cleanup.MessageCleaner
+import com.meventus.bot.keyboards.CreateEventKeyboard
 import com.meventus.bot.messages.Messages
 import com.meventus.bot.states.StateStorage
 import com.meventus.bot.states.UserState
-import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.service.UserService
 
 class StartCommand(
     private val userService: UserService,
     private val stateStorage: StateStorage,
+    private val webAppUrl: String,
 ) : Command {
     override val name = "start"
 
@@ -29,6 +31,10 @@ class StartCommand(
 
     override fun register(dispatcher: Dispatcher) {
         dispatcher.command(name) {
+            if (message.chat.id < 0) {
+                MessageCleaner.deleteLater(bot, message.chat.id, message.messageId, 20)
+                return@command
+            }
             val from = message.from ?: return@command
             userService.registerIfAbsent(
                 telegramId = from.id,
@@ -45,12 +51,17 @@ class StartCommand(
                 ?.toLongOrNull()
                 ?.let { -it }
             if (groupChatId != null) {
-                stateStorage.set(from.id, UserState.AwaitingEventTitle(EventVisibility.PRIVATE, groupChatId))
+                stateStorage.set(from.id, UserState.AwaitingEventTitle(groupChatId = groupChatId))
                 bot.sendMessage(
                     chatId = ChatId.fromId(message.chat.id),
-                    text = "Создаём мероприятие для группы.\n\nЯ всё спрошу тут, а в группу отправлю короткое уведомление.\n\nШаг 1/8 — введи *название*:",
+                    text = "Создаём мероприятие для группы.\n\nВ Mini App удобнее, но всё можно пройти здесь в чате. Сначала выбери видимость: только эта группа или публичная афиша.",
                     parseMode = ParseMode.MARKDOWN,
                     replyMarkup = menuKeyboard,
+                )
+                bot.sendMessage(
+                    chatId = ChatId.fromId(message.chat.id),
+                    text = "Выбери видимость мероприятия:",
+                    replyMarkup = CreateEventKeyboard.entry(webAppUrl),
                 )
                 return@command
             }

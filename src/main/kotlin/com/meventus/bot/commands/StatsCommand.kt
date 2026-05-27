@@ -14,6 +14,7 @@ class StatsCommand(private val webAppUrl: String) : Command {
 
     override fun register(dispatcher: Dispatcher) {
         dispatcher.command(name) {
+            if (message.chat.id < 0) return@command
             val userId = message.from?.id ?: return@command
             val stats = StatsStorage.get(userId)
             val canOpenWebApp = webAppUrl.startsWith("https://")

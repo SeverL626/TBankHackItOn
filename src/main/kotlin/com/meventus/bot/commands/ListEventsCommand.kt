@@ -25,6 +25,7 @@ class ListEventsCommand(
 
         // /events → показать фильтр тегов
         dispatcher.command(name) {
+            if (message.chat.id < 0) return@command
             val userId = message.from?.id
             sendEventList(bot, ChatId.fromId(message.chat.id), eventService.listUpcoming(), participantService, userId)
         }
@@ -57,11 +58,8 @@ class ListEventsCommand(
                     )
                     return@callbackQuery
                 }
-                // Удаляем сообщение с фильтром и отправляем карточки событий
                 bot.deleteMessage(ChatId.fromId(chatId), messageId)
-                events.forEach { event ->
-                    sendEventCard(bot, ChatId.fromId(chatId), event, participantService, callbackQuery.from.id)
-                }
+                sendEventList(bot, ChatId.fromId(chatId), events, participantService, callbackQuery.from.id)
             }
         }
     }
@@ -84,19 +82,30 @@ class ListEventsCommand(
                 return
             }
 
-            bot.sendMessage(
-                chatId = chatId,
-                text = "Нашёл ближайшие мероприятия. В карточке нажми *✅ Участвовать*, чтобы записаться.",
-                parseMode = ParseMode.MARKDOWN,
-            )
-            events.take(limit).forEach { event ->
-                sendEventCard(bot, chatId, event, participantService, userId)
+            val visible = events.take(limit)
+            val text = buildString {
+                appendLine("*Лента мероприятий*")
+                appendLine("Открой карточку кнопкой ниже — там запись, детали и выход из события.")
+                appendLine()
+                visible.forEachIndexed { index, event ->
+                    val participantCount = participantService.listByEvent(event.id).size
+                    appendLine("${index + 1}. *${event.title}*")
+                    appendLine("   ${DateUtils.format(event.startsAt)} · ${event.address} · $participantCount участн.")
+                }
+                if (events.size > limit) {
+                    appendLine()
+                    appendLine("Показаны ближайшие $limit из ${events.size}.")
+                }
             }
+            val rows = visible.map { event ->
+                listOf(InlineKeyboardButton.CallbackData("Открыть: ${event.title.take(28)}", "edetail:${event.id}"))
+            }.toMutableList()
+            rows += listOf(InlineKeyboardButton.CallbackData("🏷 Фильтр по тегам", "filter:0"))
             bot.sendMessage(
                 chatId = chatId,
-                text = "Нужно сузить поиск? Выбери теги и нажми *Найти*.",
+                text = text,
                 parseMode = ParseMode.MARKDOWN,
-                replyMarkup = TagKeyboard.forFilter(emptySet()),
+                replyMarkup = InlineKeyboardMarkup.create(rows),
             )
         }
 
@@ -131,7 +140,12 @@ class ListEventsCommand(
                 appendLine("💰 $costText  👥 $participantCount чел.")
             }
 
-            val actionRows = if (isOwner || (!isJoined && event.registrationMode == EventRegistrationMode.INVITE_ONLY)) {
+            val actionRows = if (isOwner) {
+                listOf(
+                    listOf(InlineKeyboardButton.CallbackData("🔍 Подробнее", "edetail:${event.id}")),
+                    listOf(InlineKeyboardButton.CallbackData("⚙️ Управлять", "manage:${event.id}")),
+                )
+            } else if (!isJoined && event.registrationMode == EventRegistrationMode.INVITE_ONLY) {
                 listOf(listOf(InlineKeyboardButton.CallbackData("🔍 Подробнее", "edetail:${event.id}")))
             } else {
                 val joinButton = if (isJoined) {

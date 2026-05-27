@@ -21,4 +21,7 @@ class UserService(
 
     fun findByUsername(username: String): User? =
         userRepository.findByUsername(username.removePrefix("@"))
+
+    fun findByTelegramId(telegramId: Long): User? =
+        userRepository.findByTelegramId(telegramId)
 }

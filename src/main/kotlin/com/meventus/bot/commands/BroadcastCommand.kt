@@ -18,6 +18,7 @@ class BroadcastCommand(
 
     override fun register(dispatcher: Dispatcher) {
         dispatcher.command(name) {
+            if (message.chat.id < 0) return@command
             val userId = message.from?.id ?: return@command
             val chatId = ChatId.fromId(message.chat.id)
             val events = eventService.listByOwner(userId)

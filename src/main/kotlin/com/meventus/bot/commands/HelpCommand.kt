@@ -14,15 +14,15 @@ class HelpCommand : Command {
         dispatcher.command(name) {
             val chatId = message.chat.id
             val isGroup = chatId < 0
-            val result = bot.sendMessage(
-                chatId = ChatId.fromId(message.chat.id),
-                text = if (isGroup) Messages.GROUP_HELP else Messages.HELP,
-                parseMode = ParseMode.MARKDOWN,
-            )
             if (isGroup) {
                 MessageCleaner.deleteLater(bot, chatId, message.messageId, 20)
-                MessageCleaner.deleteLater(bot, chatId, result, 180)
+                return@command
             }
+            bot.sendMessage(
+                chatId = ChatId.fromId(message.chat.id),
+                text = Messages.HELP,
+                parseMode = ParseMode.MARKDOWN,
+            )
         }
     }
 }

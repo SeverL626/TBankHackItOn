@@ -4,28 +4,26 @@ import com.github.kotlintelegrambot.dispatcher.Dispatcher
 import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.ParseMode
+import com.meventus.bot.keyboards.CreateEventKeyboard
 import com.meventus.bot.states.StateStorage
 import com.meventus.bot.states.UserState
-import com.meventus.domain.model.EventVisibility
 
-class CreateEventCommand(private val stateStorage: StateStorage) : Command {
+class CreateEventCommand(
+    private val stateStorage: StateStorage,
+    private val webAppUrl: String,
+) : Command {
     override val name = "new"
 
     override fun register(dispatcher: Dispatcher) {
         dispatcher.command(name) {
+            if (message.chat.id < 0) return@command
             val userId = message.from?.id ?: return@command
-            val text = message.text.orEmpty()
-            val visibility = if (text.contains("private", ignoreCase = true) || text.contains("приват", ignoreCase = true)) {
-                EventVisibility.PRIVATE
-            } else {
-                EventVisibility.PUBLIC
-            }
-            stateStorage.set(userId, UserState.AwaitingEventTitle(visibility))
-            val visibilityText = if (visibility == EventVisibility.PRIVATE) "приватное" else "публичное"
+            stateStorage.set(userId, UserState.AwaitingEventTitle())
             bot.sendMessage(
                 chatId = ChatId.fromId(message.chat.id),
-                text = "Создаём *$visibilityText* мероприятие.\n\nЯ задам несколько вопросов, потом покажу событие в афише. _/cancel — отменить_\n\nШаг 1/8 — введи *название*.\nНапример: `Kotlin meetup`",
+                text = "Создание мероприятия.\n\nВ Mini App это удобнее: там форма, редактирование и админ-панель. Но можно полностью продолжить в чате — сначала выбери видимость.",
                 parseMode = ParseMode.MARKDOWN,
+                replyMarkup = CreateEventKeyboard.entry(webAppUrl),
             )
         }
     }

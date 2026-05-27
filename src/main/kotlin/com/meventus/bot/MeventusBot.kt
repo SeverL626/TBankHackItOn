@@ -17,6 +17,7 @@ import com.meventus.bot.commands.StartCommand
 import com.meventus.bot.commands.StatsCommand
 import com.meventus.bot.handlers.BroadcastHandler
 import com.meventus.bot.handlers.EventCreateHandler
+import com.meventus.bot.handlers.EventManageHandler
 import com.meventus.bot.handlers.GroupEventHandler
 import com.meventus.bot.handlers.MenuKeyboardHandler
 import com.meventus.bot.handlers.PaymentHandler
@@ -30,6 +31,8 @@ import com.meventus.domain.service.UserService
 import com.meventus.infrastructure.persistence.repository.EventRepositoryImpl
 import com.meventus.infrastructure.persistence.repository.ParticipantRepositoryImpl
 import com.meventus.infrastructure.persistence.repository.UserRepositoryImpl
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MeventusBot(private val config: AppConfig) {
 
@@ -64,11 +67,14 @@ class MeventusBot(private val config: AppConfig) {
                 // FSM: payment confirmation flow
                 PaymentHandler(eventService, participantService, stateStorage).register(this)
 
+                // Owner actions: edit, participants, custom notifications, cancel.
+                EventManageHandler(eventService, participantService, userService, stateStorage).register(this)
+
                 // Commands
                 CancelCommand(stateStorage).register(this)
-                StartCommand(userService, stateStorage).register(this)
+                StartCommand(userService, stateStorage, config.webApp.url).register(this)
                 HelpCommand().register(this)
-                CreateEventCommand(stateStorage).register(this)
+                CreateEventCommand(stateStorage, config.webApp.url).register(this)
                 ListEventsCommand(eventService, participantService).register(this)
                 MyEventsCommand(eventService, participantService).register(this)
                 StatsCommand(config.webApp.url).register(this)
@@ -81,25 +87,51 @@ class MeventusBot(private val config: AppConfig) {
             }
         }
 
-        // Register bot command menu (shown when user types /)
-        bot.setMyCommands(
-            listOf(
-                BotCommand("cancel", "Отменить текущее действие"),
-                BotCommand("start", "Главное меню"),
-                BotCommand("events", "Список мероприятий"),
-                BotCommand("new", "Создать мероприятие"),
-                BotCommand("my", "Мои мероприятия"),
-                BotCommand("broadcast", "Рассылка участникам"),
-                BotCommand("group_new", "Создать мероприятие из группы"),
-                BotCommand("gevents", "Мероприятия текущей группы"),
-                BotCommand("ginvite", "Пригласить участников в событие группы"),
-                BotCommand("ghelp", "Помощь по групповому режиму"),
-                BotCommand("stats", "Статистика и мини-приложение"),
-                BotCommand("help", "Помощь"),
-            ),
-        )
+        registerCommandMenus(bot)
 
         EventReminderService(bot, eventService, participantService).start()
         bot.startPolling()
     }
+
+    private fun registerCommandMenus(bot: com.github.kotlintelegrambot.Bot) {
+        val privateCommands = listOf(
+            BotCommand("start", "Главное меню"),
+            BotCommand("events", "Лента мероприятий"),
+            BotCommand("new", "Создать мероприятие"),
+            BotCommand("my", "Мои события и управление"),
+            BotCommand("broadcast", "Уведомление участникам"),
+            BotCommand("stats", "Mini App"),
+            BotCommand("help", "Помощь"),
+            BotCommand("cancel", "Отменить действие"),
+        )
+        val groupCommands = listOf(
+            BotCommand("gevents", "Мероприятия этой группы"),
+            BotCommand("gnew", "Создать событие группы"),
+            BotCommand("ginvite", "Пригласить участников"),
+        )
+
+        bot.setMyCommands(privateCommands)
+        setCommandsForScope(config.bot.token, privateCommands, """{"type":"all_private_chats"}""")
+        setCommandsForScope(config.bot.token, groupCommands, """{"type":"all_group_chats"}""")
+    }
+
+    private fun setCommandsForScope(token: String, commands: List<BotCommand>, scopeJson: String) {
+        runCatching {
+            val body = """{"scope":$scopeJson,"commands":${commands.toTelegramJson()}}"""
+            val connection = URL("https://api.telegram.org/bot$token/setMyCommands").openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            connection.inputStream.use { it.readBytes() }
+        }
+    }
+
+    private fun List<BotCommand>.toTelegramJson(): String =
+        joinToString(prefix = "[", postfix = "]") {
+            """{"command":"${it.command.json()}","description":"${it.description.json()}"}"""
+        }
+
+    private fun String.json(): String =
+        replace("\\", "\\\\").replace("\"", "\\\"")
 }

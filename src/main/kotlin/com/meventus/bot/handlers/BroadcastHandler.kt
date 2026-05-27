@@ -64,27 +64,42 @@ class BroadcastHandler(
             val participants = participantService.listByEvent(state.eventId)
             stateStorage.clear(userId)
 
-            if (participants.isEmpty()) {
+            if (participants.isEmpty() && event.groupChatId == null) {
                 bot.sendMessage(chatId, "Нет участников для рассылки.")
                 return@text
             }
 
             val broadcastText = "📢 *${event.title}*\n\n$text"
             var sent = 0
-            participants.forEach { p ->
+            if (event.groupChatId != null) {
                 runCatching {
                     bot.sendMessage(
-                        chatId = ChatId.fromId(p.userId),
+                        chatId = ChatId.fromId(event.groupChatId),
                         text = broadcastText,
                         parseMode = ParseMode.MARKDOWN,
                     )
                     sent++
                 }
+            } else {
+                participants.forEach { p ->
+                    runCatching {
+                        bot.sendMessage(
+                            chatId = ChatId.fromId(p.userId),
+                            text = broadcastText,
+                            parseMode = ParseMode.MARKDOWN,
+                        )
+                        sent++
+                    }
+                }
             }
 
             bot.sendMessage(
                 chatId = chatId,
-                text = "✅ Рассылка отправлена: $sent/${participants.size} участников получили сообщение.",
+                text = if (event.groupChatId != null) {
+                    "✅ Уведомление отправлено в группу."
+                } else {
+                    "✅ Рассылка отправлена: $sent/${participants.size} участников получили сообщение."
+                },
             )
         }
     }

@@ -50,11 +50,22 @@ class EventReminderService(
     }
 
     private fun notifyEvent(event: Event, window: String) {
-        val recipients = (participantService.listByEvent(event.id).map { it.userId } + event.ownerId).distinct()
         val text = "⏰ Напоминание: *${event.title}*\n" +
             "До начала: *$window*\n" +
             "Дата: ${DateUtils.format(event.startsAt)}\n" +
             "Адрес: ${event.address}"
+        if (event.groupChatId != null) {
+            runCatching {
+                bot.sendMessage(
+                    chatId = ChatId.fromId(event.groupChatId),
+                    text = text,
+                    parseMode = ParseMode.MARKDOWN,
+                )
+            }
+            return
+        }
+
+        val recipients = (participantService.listByEvent(event.id).map { it.userId } + event.ownerId).distinct()
         recipients.forEach { userId ->
             runCatching {
                 bot.sendMessage(

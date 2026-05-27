@@ -80,7 +80,7 @@ class PaymentHandler(
 
                     runCatching {
                         bot.sendMessage(
-                            chatId = ChatId.fromId(event.ownerId),
+                            chatId = ChatId.fromId(event.groupChatId ?: event.ownerId),
                             text = "💰 *Запрос оплаты*\n\n" +
                                 "Мероприятие: *${event.title}*\n" +
                                 "Участник: $userInfo\n" +

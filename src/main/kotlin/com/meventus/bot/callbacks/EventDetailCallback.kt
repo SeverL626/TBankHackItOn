@@ -65,7 +65,12 @@ class EventDetailCallback(
             }
 
             val markup = if (isOwner) {
-                InlineKeyboardMarkup.create(listOf(InlineKeyboardButton.CallbackData("🔄 Обновить карточку", "edetail:$eventId")))
+                InlineKeyboardMarkup.create(
+                    listOf(
+                        listOf(InlineKeyboardButton.CallbackData("⚙️ Управлять", "manage:$eventId")),
+                        listOf(InlineKeyboardButton.CallbackData("🔄 Обновить карточку", "edetail:$eventId")),
+                    ),
+                )
             } else if (!isJoined && event.registrationMode == EventRegistrationMode.INVITE_ONLY) {
                 InlineKeyboardMarkup.create(listOf(InlineKeyboardButton.CallbackData("🔄 Обновить карточку", "edetail:$eventId")))
             } else {

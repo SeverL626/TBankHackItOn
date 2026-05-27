@@ -35,8 +35,12 @@ class LeaveEventCallback(
             eventService.findById(eventId)?.let { event ->
                 val name = callbackQuery.from.username?.let { "@$it" } ?: callbackQuery.from.firstName
                 bot.sendMessage(
-                    chatId = ChatId.fromId(event.ownerId),
-                    text = "Участник $name вышел из мероприятия *${event.title}*.",
+                    chatId = ChatId.fromId(event.groupChatId ?: event.ownerId),
+                    text = if (event.groupChatId != null) {
+                        "$name вышел из мероприятия *${event.title}*."
+                    } else {
+                        "Участник $name вышел из мероприятия *${event.title}*."
+                    },
                     parseMode = ParseMode.MARKDOWN,
                 )
             }
