@@ -49,6 +49,13 @@ class GroupEventHandler(
                     sendGroupEvents(bot, ChatId.fromId(chatId), chatId)
                 }
 
+                command in setOf("/ginvite", "/group_invite") ||
+                    (mentionsBot && ("приглас" in normalized || "добав" in normalized)) -> {
+                    MessageCleaner.deleteLater(bot, chatId, message.messageId, 45)
+                    userService.registerIfAbsent(from.id, from.username, from.firstName)
+                    inviteToGroupEvent(bot, ChatId.fromId(chatId), chatId, text, username, from.id)
+                }
+
                 command in setOf("/gnew", "/group_new") ||
                     (mentionsBot && ("созд" in normalized || "заплан" in normalized)) -> {
                     MessageCleaner.deleteLater(bot, chatId, message.messageId, 45)
@@ -120,7 +127,7 @@ class GroupEventHandler(
                 bot,
                 chatId,
                 groupChatId,
-                "В этой группе пока нет ближайших мероприятий.\n\nСоздать: `/gnew Название | 25.05.2026 18:00 | Место | Описание | free private`",
+                "В этой группе пока нет ближайших мероприятий.\n\nСоздать: `/gnew Демо-день | 25.05.2026 18:00 | офис`",
                 180,
             )
             return
@@ -147,6 +154,7 @@ class GroupEventHandler(
         val tags = event.tags.joinToString(" ") { "${it.emoji} ${it.displayName}" }
         val text = buildString {
             appendLine("📌 *${event.title}*")
+            appendLine("ID: `${event.id}`")
             appendLine("$visibility · $registration")
             if (tags.isNotBlank()) appendLine(tags)
             appendLine()
@@ -173,6 +181,72 @@ class GroupEventHandler(
         MessageCleaner.deleteLater(bot, groupChatId, result, 30 * 60)
     }
 
+    private fun inviteToGroupEvent(
+        bot: Bot,
+        chatId: ChatId,
+        groupChatId: Long,
+        text: String,
+        botUsername: String,
+        inviterId: Long,
+    ) {
+        val cleaned = text
+            .replace("@$botUsername", "", ignoreCase = true)
+            .replace(Regex("/group_invite(@$botUsername)?", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("/ginvite(@$botUsername)?", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("пригласить|добавить", RegexOption.IGNORE_CASE), "")
+            .trim()
+        val eventId = Regex("\\d+").find(cleaned)?.value?.toLongOrNull()
+        if (eventId == null) {
+            sendTemporary(bot, chatId, groupChatId, Messages.GROUP_INVITE_HELP, 120)
+            return
+        }
+        val event = eventService.findById(eventId)
+        if (event == null || event.groupChatId != groupChatId) {
+            sendTemporary(bot, chatId, groupChatId, "Не нашёл мероприятие `$eventId` в этой группе. Посмотри список: /gevents", 90)
+            return
+        }
+        if (event.ownerId != inviterId) {
+            sendTemporary(bot, chatId, groupChatId, "Приглашать в это мероприятие может только организатор.", 90)
+            return
+        }
+
+        val usernames = extractUsernames(cleaned, botUsername)
+        if (usernames.isEmpty()) {
+            sendTemporary(bot, chatId, groupChatId, Messages.GROUP_INVITE_HELP, 120)
+            return
+        }
+
+        val invited = usernames.mapNotNull { usernameMention ->
+            userService.findByUsername(usernameMention)?.also {
+                participantService.joinIfAbsent(event.id, it.telegramId)
+                runCatching {
+                    bot.sendMessage(
+                        chatId = ChatId.fromId(it.telegramId),
+                        text = "Вас пригласили на *${event.title}* из группового чата.\nДата: ${DateUtils.format(event.startsAt)}",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                }
+            }
+        }
+        val invitedNames = invited.mapNotNull { it.username }.toSet()
+        val missing = usernames.filter { it.removePrefix("@") !in invitedNames }
+
+        sendTemporary(
+            bot,
+            chatId,
+            groupChatId,
+            buildString {
+                appendLine("Готово: пригласил ${invited.size} участн. в *${event.title}*.")
+                if (missing.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Не смог найти: ${missing.joinToString(" ") { "@$it" }}")
+                    appendLine("Пусть они один раз напишут боту /start в личку.")
+                }
+            },
+            180,
+        )
+    }
+
     private data class ParsedGroupEvent(
         val title: String,
         val date: String,
@@ -194,29 +268,23 @@ class GroupEventHandler(
             .replace(Regex("запланировать\\s+мероприятие", RegexOption.IGNORE_CASE), "")
             .trim()
         val parts = cleaned.split("|").map { it.trim() }
-        if (parts.size < 4) return null
+        if (parts.size < 3) return null
 
-        val tail = parts.drop(4).joinToString(" ")
-        val usernames = Regex("@[A-Za-z0-9_]{5,32}")
-            .findAll(tail)
-            .map { it.value.removePrefix("@") }
-            .filter { it != botUsername }
-            .distinct()
-            .toList()
+        val tail = parts.drop(3).joinToString(" ")
+        val usernames = extractUsernames(tail, botUsername)
         val visibility = if (
-            cleaned.contains("private", ignoreCase = true) ||
-            cleaned.contains("приват", ignoreCase = true) ||
-            cleaned.contains("только группа", ignoreCase = true)
+            cleaned.contains("public", ignoreCase = true) ||
+            cleaned.contains("публич", ignoreCase = true) ||
+            cleaned.contains("общая афиша", ignoreCase = true)
         ) {
-            EventVisibility.PRIVATE
-        } else {
             EventVisibility.PUBLIC
+        } else {
+            EventVisibility.PRIVATE
         }
         val registrationMode = if (
             cleaned.contains("invite", ignoreCase = true) ||
             cleaned.contains("по приглаш", ignoreCase = true) ||
-            cleaned.contains("закрытая запись", ignoreCase = true) ||
-            (usernames.isNotEmpty() && !cleaned.contains("free", ignoreCase = true) && !cleaned.contains("свобод", ignoreCase = true))
+            cleaned.contains("закрытая запись", ignoreCase = true)
         ) {
             EventRegistrationMode.INVITE_ONLY
         } else {
@@ -233,7 +301,7 @@ class GroupEventHandler(
             title = parts[0],
             date = parts[1],
             address = parts[2],
-            description = parts[3],
+            description = parts.getOrNull(3)?.ifBlank { "Мероприятие группы" } ?: "Мероприятие группы",
             cost = cost,
             visibility = visibility,
             registrationMode = registrationMode,
@@ -241,6 +309,14 @@ class GroupEventHandler(
             usernames = usernames,
         )
     }
+
+    private fun extractUsernames(text: String, botUsername: String): List<String> =
+        Regex("@[A-Za-z0-9_]{5,32}")
+            .findAll(text)
+            .map { it.value.removePrefix("@") }
+            .filter { it != botUsername }
+            .distinct()
+            .toList()
 
     private fun createdSummary(event: Event, registeredCount: Int, missing: List<String>): String {
         val visibility = if (event.visibility == EventVisibility.PRIVATE) "только для этой группы" else "публичное"
