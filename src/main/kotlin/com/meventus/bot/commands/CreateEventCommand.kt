@@ -21,7 +21,7 @@ class CreateEventCommand(
             stateStorage.set(userId, UserState.AwaitingEventTitle())
             bot.sendMessage(
                 chatId = ChatId.fromId(message.chat.id),
-                text = "Создание мероприятия.\n\nВ Mini App это удобнее: там форма, редактирование и админ-панель. Но можно полностью продолжить в чате — сначала выбери видимость.",
+                text = "Создание мероприятия.\n\nМожно пройти всё здесь, в чате. Мини-приложение пока экспериментальное, но в нём удобнее заполнять форму. Сначала выбери видимость.",
                 parseMode = ParseMode.MARKDOWN,
                 replyMarkup = CreateEventKeyboard.entry(webAppUrl),
             )

@@ -14,13 +14,14 @@ class StatsCommand(private val webAppUrl: String) : Command {
 
     override fun register(dispatcher: Dispatcher) {
         dispatcher.command(name) {
+            if (message.chat.id < 0) return@command
             val userId = message.from?.id ?: return@command
             val stats = StatsStorage.get(userId)
             val canOpenWebApp = webAppUrl.startsWith("https://")
             val webAppHint = if (canOpenWebApp) {
-                ""
+                "\n\nМини-приложение пока экспериментальное. Всё основное можно сделать и кнопками в чате."
             } else {
-                "\n\nMini App не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: `$webAppUrl`"
+                "\n\nМини-приложение не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: `$webAppUrl`"
             }
             val text = """
                 📊 *Ваша статистика*
@@ -31,7 +32,7 @@ class StatsCommand(private val webAppUrl: String) : Command {
 
             val markup = if (canOpenWebApp) {
                 InlineKeyboardMarkup.create(
-                    listOf(InlineKeyboardButton.WebApp("Открыть мини-приложение", WebAppInfo(webAppUrl))),
+                    listOf(InlineKeyboardButton.WebApp("🌐 Открыть экспериментальное приложение", WebAppInfo(webAppUrl))),
                 )
             } else null
 

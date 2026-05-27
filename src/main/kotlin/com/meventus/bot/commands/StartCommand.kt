@@ -23,7 +23,7 @@ class StartCommand(
     private val menuKeyboard = KeyboardReplyMarkup(
         keyboard = listOf(
             listOf(KeyboardButton("🔎 Найти"), KeyboardButton("➕ Создать")),
-            listOf(KeyboardButton("👤 Мои"), KeyboardButton("🌐 Mini App")),
+            listOf(KeyboardButton("👤 Мои"), KeyboardButton("🌐 Эксперимент")),
             listOf(KeyboardButton("📢 Рассылка"), KeyboardButton("❓ Помощь")),
         ),
         resizeKeyboard = true,
@@ -54,7 +54,7 @@ class StartCommand(
                 stateStorage.set(from.id, UserState.AwaitingEventTitle(groupChatId = groupChatId))
                 bot.sendMessage(
                     chatId = ChatId.fromId(message.chat.id),
-                    text = "Создаём мероприятие для группы.\n\nВ Mini App удобнее, но всё можно пройти здесь в чате. Сначала выбери видимость: только эта группа или публичная афиша.",
+                    text = "Создаём мероприятие для группы.\n\nМожно пройти всё здесь, в чате. Мини-приложение пока экспериментальное, но в нём удобнее заполнять форму. Сначала выбери видимость: только эта группа или публичная афиша.",
                     parseMode = ParseMode.MARKDOWN,
                     replyMarkup = menuKeyboard,
                 )

@@ -101,7 +101,7 @@ class MeventusBot(private val config: AppConfig) {
         registerCommandMenus(bot)
 
         notifyTechUpdateIfNeeded(bot)
-        EventReminderService(bot, eventService, participantService, customReminderService).start()
+        EventReminderService(bot, eventService, participantService, customReminderService, techUpdateService).start()
         bot.startPolling()
     }
 
@@ -112,7 +112,7 @@ class MeventusBot(private val config: AppConfig) {
             BotCommand("new", "Создать мероприятие"),
             BotCommand("my", "Мои события и управление"),
             BotCommand("broadcast", "Уведомление участникам"),
-            BotCommand("stats", "Mini App"),
+            BotCommand("stats", "Экспериментальное приложение"),
             BotCommand("updates_on", "Включить тех-уведы"),
             BotCommand("updates_off", "Выключить тех-уведы"),
             BotCommand("help", "Помощь"),

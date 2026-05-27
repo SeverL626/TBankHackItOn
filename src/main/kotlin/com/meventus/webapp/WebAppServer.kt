@@ -142,7 +142,7 @@ object WebAppServer {
                 return@createContext
             }
             participantService.join(eventId, userId)
-            sendTelegramMessage(event.ownerId, "Новый участник записался на *${event.title}* через Mini App.")
+            sendTelegramMessage(event.ownerId, "Новый участник записался на *${event.title}* через мини-приложение.")
             sendJson(exchange, """{"ok":true}""")
         }
 
@@ -156,7 +156,7 @@ object WebAppServer {
             val event = eventService.findById(eventId)
             participantService.leave(eventId, userId)
             if (event != null && event.ownerId != userId) {
-                sendTelegramMessage(event.ownerId, "Участник вышел из мероприятия *${event.title}* через Mini App.")
+                sendTelegramMessage(event.ownerId, "Участник вышел из мероприятия *${event.title}* через мини-приложение.")
             }
             sendJson(exchange, """{"ok":true}""")
         }

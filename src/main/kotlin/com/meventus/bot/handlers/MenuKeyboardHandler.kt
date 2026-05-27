@@ -26,6 +26,7 @@ val MENU_BUTTONS = mapOf(
     "📢 Рассылка" to "broadcast",
     "📊 Статистика" to "stats",
     "🌐 Mini App" to "stats",
+    "🌐 Эксперимент" to "stats",
     "❓ Помощь" to "help",
 )
 
@@ -103,7 +104,7 @@ class MenuKeyboardHandler(
                     stateStorage.set(userId, UserState.AwaitingEventTitle())
                     bot.sendMessage(
                         chatId,
-                        "Создание мероприятия.\n\nВ Mini App удобнее: там форма, редактирование и админ-панель. Но можно полностью продолжить в чате — сначала выбери видимость.",
+                        "Создание мероприятия.\n\nМожно пройти всё здесь, в чате. Мини-приложение пока экспериментальное, но в нём удобнее заполнять форму. Сначала выбери видимость.",
                         parseMode = ParseMode.MARKDOWN,
                         replyMarkup = CreateEventKeyboard.entry(webAppUrl),
                     )
@@ -127,17 +128,17 @@ class MenuKeyboardHandler(
                     )
                 }
 
-                "📊 Статистика", "🌐 Mini App" -> {
+                "📊 Статистика", "🌐 Mini App", "🌐 Эксперимент" -> {
                     val canOpenWebApp = webAppUrl.startsWith("https://")
                     val markup = if (canOpenWebApp) {
                         InlineKeyboardMarkup.create(
-                            listOf(InlineKeyboardButton.WebApp("🌐 Открыть Mini App", WebAppInfo(webAppUrl))),
+                            listOf(InlineKeyboardButton.WebApp("🌐 Открыть экспериментальное приложение", WebAppInfo(webAppUrl))),
                         )
                     } else null
                     val hint = if (canOpenWebApp) {
-                        "В Mini App удобнее смотреть афишу, записываться, создавать и редактировать мероприятия."
+                        "Мини-приложение пока экспериментальное. В нём удобнее смотреть афишу, записываться, создавать и редактировать мероприятия. Всё основное можно сделать и кнопками в чате."
                     } else {
-                        "Mini App не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: $webAppUrl"
+                        "Мини-приложение не откроется в Telegram, пока WEBAPP_URL не начинается с https://. Сейчас: $webAppUrl"
                     }
                     bot.sendMessage(chatId, hint, replyMarkup = markup)
                 }
