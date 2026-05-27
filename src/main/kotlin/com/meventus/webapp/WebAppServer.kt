@@ -1,6 +1,7 @@
 package com.meventus.webapp
 
 import com.meventus.bot.stats.StatsStorage
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.EventTag
 import com.meventus.domain.model.EventVisibility
 import com.meventus.domain.model.PaymentType
@@ -78,7 +79,7 @@ object WebAppServer {
                     val participants = participantService.listByEvent(e.id)
                     val tagJson = e.tags.joinToString(",", "[", "]") { "\"${it.name}\"" }
                     val photoUrl = e.photoFileId?.let { "\"/api/photo?fileId=${it}\"" } ?: "null"
-                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"shortDescription":${e.shortDescription.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"isParticipant":$isParticipant,"ownerId":${e.ownerId},"status":"${e.status.name}","visibility":"${e.visibility.name}","photoUrl":$photoUrl}""")
+                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"shortDescription":${e.shortDescription.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"isParticipant":$isParticipant,"ownerId":${e.ownerId},"status":"${e.status.name}","visibility":"${e.visibility.name}","registrationMode":"${e.registrationMode.name}","photoUrl":$photoUrl}""")
                 }
                 append("]")
             }
@@ -104,7 +105,7 @@ object WebAppServer {
             val totalContrib = participants.sumOf { it.contributed }
             val tagJson = event.tags.joinToString(",", "[", "]") { "\"${it.name}\"" }
             val photoUrl = event.photoFileId?.let { "\"/api/photo?fileId=${it}\"" } ?: "null"
-            val json = """{"id":${event.id},"title":${event.title.jsonStr()},"shortDescription":${event.shortDescription.jsonStr()},"description":${event.description.jsonStr()},"address":${event.address.jsonStr()},"startsAt":"${dtf.format(event.startsAt)}","cost":${event.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"isParticipant":$isParticipant,"ownerId":${event.ownerId},"status":"${event.status.name}","visibility":"${event.visibility.name}","photoUrl":$photoUrl,"paymentType":"${event.paymentType.name}","sbpPhone":${event.sbpPhone?.jsonStr() ?: "null"},"sbpName":${event.sbpName?.jsonStr() ?: "null"}}"""
+            val json = """{"id":${event.id},"title":${event.title.jsonStr()},"shortDescription":${event.shortDescription.jsonStr()},"description":${event.description.jsonStr()},"address":${event.address.jsonStr()},"startsAt":"${dtf.format(event.startsAt)}","cost":${event.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"isParticipant":$isParticipant,"ownerId":${event.ownerId},"status":"${event.status.name}","visibility":"${event.visibility.name}","registrationMode":"${event.registrationMode.name}","photoUrl":$photoUrl,"paymentType":"${event.paymentType.name}","sbpPhone":${event.sbpPhone?.jsonStr() ?: "null"},"sbpName":${event.sbpName?.jsonStr() ?: "null"}}"""
             sendJson(exchange, json)
         }
 
@@ -126,6 +127,10 @@ object WebAppServer {
             }
             if (event.visibility == EventVisibility.PRIVATE) {
                 sendJson(exchange, """{"ok":false,"error":"private event"}""")
+                return@createContext
+            }
+            if (event.registrationMode == EventRegistrationMode.INVITE_ONLY) {
+                sendJson(exchange, """{"ok":false,"error":"invite only event"}""")
                 return@createContext
             }
             if (event.paymentType == PaymentType.ADVANCE) {
@@ -168,7 +173,7 @@ object WebAppServer {
                     val participants = participantService.listByEvent(e.id)
                     val totalContrib = participants.sumOf { it.contributed }
                     val tagJson = e.tags.joinToString(",", "[", "]") { "\"${it.name}\"" }
-                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"status":"${e.status.name}","visibility":"${e.visibility.name}"}""")
+                    append("""{"id":${e.id},"title":${e.title.jsonStr()},"address":${e.address.jsonStr()},"startsAt":"${dtf.format(e.startsAt)}","cost":${e.cost},"tags":$tagJson,"participantCount":${participants.size},"totalContributed":$totalContrib,"status":"${e.status.name}","visibility":"${e.visibility.name}","registrationMode":"${e.registrationMode.name}"}""")
                 }
                 append("]")
             }
@@ -190,6 +195,7 @@ object WebAppServer {
             val tagBitmask = params["tags"]?.toIntOrNull() ?: 0
             val tags = EventTag.entries.filter { tagBitmask and it.bit != 0 }.toSet()
             val visibility = parseVisibility(params["visibility"])
+            val registrationMode = parseRegistrationMode(params["registrationMode"])
             val paymentType = parsePaymentType(params["paymentType"])
             val sbpPhone = params["sbpPhone"]?.takeIf { it.isNotBlank() }
             val sbpName = params["sbpName"]?.takeIf { it.isNotBlank() }
@@ -208,6 +214,7 @@ object WebAppServer {
                 sbpPhone = if (paymentType == PaymentType.ADVANCE) sbpPhone else null,
                 sbpName = if (paymentType == PaymentType.ADVANCE) sbpName else null,
                 visibility = visibility,
+                registrationMode = registrationMode,
             )
             sendJson(exchange, """{"ok":true,"id":${event.id}}""")
         }
@@ -228,6 +235,7 @@ object WebAppServer {
             val tagBitmask = params["tags"]?.toIntOrNull() ?: 0
             val tags = EventTag.entries.filter { tagBitmask and it.bit != 0 }.toSet()
             val visibility = parseVisibility(params["visibility"])
+            val registrationMode = parseRegistrationMode(params["registrationMode"])
             val paymentType = parsePaymentType(params["paymentType"])
             val sbpPhone = params["sbpPhone"]?.takeIf { it.isNotBlank() }
             val sbpName = params["sbpName"]?.takeIf { it.isNotBlank() }
@@ -248,6 +256,7 @@ object WebAppServer {
                 sbpPhone = sbpPhone,
                 sbpName = sbpName,
                 visibility = visibility,
+                registrationMode = registrationMode,
             )
             if (updated == null) {
                 sendJson(exchange, """{"ok":false,"error":"not found or not owner"}""")
@@ -429,6 +438,10 @@ object WebAppServer {
     private fun parsePaymentType(value: String?): PaymentType =
         runCatching { PaymentType.valueOf(value?.uppercase() ?: PaymentType.ON_SITE.name) }
             .getOrDefault(PaymentType.ON_SITE)
+
+    private fun parseRegistrationMode(value: String?): EventRegistrationMode =
+        runCatching { EventRegistrationMode.valueOf(value?.uppercase() ?: EventRegistrationMode.FREE.name) }
+            .getOrDefault(EventRegistrationMode.FREE)
 
     private fun String.jsonStr(): String {
         val escaped = this

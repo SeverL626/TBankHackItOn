@@ -1,6 +1,7 @@
 package com.meventus.domain.service
 
 import com.meventus.domain.model.Event
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.EventStatus
 import com.meventus.domain.model.EventTag
 import com.meventus.domain.model.EventVisibility
@@ -24,6 +25,7 @@ class EventService(private val eventRepository: EventRepository) {
         sbpPhone: String? = null,
         sbpName: String? = null,
         visibility: EventVisibility = EventVisibility.PUBLIC,
+        registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
         groupChatId: Long? = null,
     ): Event = eventRepository.save(
         Event(
@@ -43,6 +45,7 @@ class EventService(private val eventRepository: EventRepository) {
             sbpPhone = sbpPhone,
             sbpName = sbpName,
             visibility = visibility,
+            registrationMode = registrationMode,
             groupChatId = groupChatId,
         ),
     )
@@ -59,6 +62,8 @@ class EventService(private val eventRepository: EventRepository) {
 
     fun listByOwner(ownerId: Long): List<Event> = eventRepository.findByOwner(ownerId)
 
+    fun listByGroup(groupChatId: Long): List<Event> = eventRepository.findByGroup(groupChatId)
+
     fun update(
         eventId: Long,
         ownerId: Long,
@@ -73,6 +78,7 @@ class EventService(private val eventRepository: EventRepository) {
         sbpPhone: String? = null,
         sbpName: String? = null,
         visibility: EventVisibility? = null,
+        registrationMode: EventRegistrationMode? = null,
     ): Event? {
         val existing = eventRepository.findById(eventId) ?: return null
         if (existing.ownerId != ownerId) return null
@@ -90,6 +96,7 @@ class EventService(private val eventRepository: EventRepository) {
                 sbpPhone = if (newPaymentType == PaymentType.ADVANCE) sbpPhone ?: existing.sbpPhone else null,
                 sbpName = if (newPaymentType == PaymentType.ADVANCE) sbpName ?: existing.sbpName else null,
                 visibility = visibility ?: existing.visibility,
+                registrationMode = registrationMode ?: existing.registrationMode,
             ),
         )
     }

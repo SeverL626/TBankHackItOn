@@ -10,6 +10,7 @@ import com.github.kotlintelegrambot.entities.TelegramFile
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
 import com.meventus.bot.keyboards.TagKeyboard
 import com.meventus.domain.model.Event
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
 import com.meventus.util.DateUtils
@@ -114,6 +115,7 @@ class ListEventsCommand(
             val roleText = when {
                 isOwner -> "👑 Вы организатор"
                 isJoined -> "✅ Вы участвуете"
+                event.registrationMode == EventRegistrationMode.INVITE_ONLY -> "🔐 Запись по приглашению"
                 else -> "Можно записаться"
             }
 
@@ -129,7 +131,7 @@ class ListEventsCommand(
                 appendLine("💰 $costText  👥 $participantCount чел.")
             }
 
-            val actionRows = if (isOwner) {
+            val actionRows = if (isOwner || (!isJoined && event.registrationMode == EventRegistrationMode.INVITE_ONLY)) {
                 listOf(listOf(InlineKeyboardButton.CallbackData("🔍 Подробнее", "edetail:${event.id}")))
             } else {
                 val joinButton = if (isJoined) {

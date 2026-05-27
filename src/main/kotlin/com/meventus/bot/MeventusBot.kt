@@ -91,6 +91,8 @@ class MeventusBot(private val config: AppConfig) {
                 BotCommand("my", "Мои мероприятия"),
                 BotCommand("broadcast", "Рассылка участникам"),
                 BotCommand("group_new", "Создать мероприятие из группы"),
+                BotCommand("gevents", "Мероприятия текущей группы"),
+                BotCommand("ghelp", "Помощь по групповому режиму"),
                 BotCommand("stats", "Статистика и мини-приложение"),
                 BotCommand("help", "Помощь"),
             ),

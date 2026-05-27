@@ -7,6 +7,7 @@ import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
 import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.TelegramFile
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
 import com.meventus.util.DateUtils
@@ -38,11 +39,13 @@ class EventDetailCallback(
             val costText = if (event.cost == 0L) "Бесплатно" else "${event.cost} ₽"
             val tagsText = event.tags.joinToString(" ") { "${it.emoji} ${it.displayName}" }
             val visibilityText = if (event.visibility.name == "PRIVATE") "🔒 Приватное" else "🌍 Публичное"
+            val registrationText = if (event.registrationMode == EventRegistrationMode.FREE) "✅ Свободная запись" else "🔐 По приглашению"
 
             val text = buildString {
                 appendLine("*${event.title}*")
                 if (tagsText.isNotEmpty()) appendLine(tagsText)
                 appendLine(visibilityText)
+                appendLine(registrationText)
                 if (isOwner) appendLine("👑 Вы организатор")
                 if (isJoined) appendLine("✅ Вы участвуете")
                 appendLine()
@@ -52,13 +55,18 @@ class EventDetailCallback(
                 appendLine("📅 *Дата:* ${DateUtils.format(event.startsAt)}")
                 appendLine("💰 *Стоимость:* $costText")
                 appendLine("👥 *Участников:* ${participants.size}")
-                if (!isOwner && !isJoined) {
+                if (!isOwner && !isJoined && event.registrationMode == EventRegistrationMode.FREE) {
                     appendLine()
                     appendLine("Чтобы записаться, нажмите *✅ Участвовать* ниже.")
+                } else if (!isOwner && !isJoined) {
+                    appendLine()
+                    appendLine("Запись закрыта: участники добавляются по приглашению организатора.")
                 }
             }
 
             val markup = if (isOwner) {
+                InlineKeyboardMarkup.create(listOf(InlineKeyboardButton.CallbackData("🔄 Обновить карточку", "edetail:$eventId")))
+            } else if (!isJoined && event.registrationMode == EventRegistrationMode.INVITE_ONLY) {
                 InlineKeyboardMarkup.create(listOf(InlineKeyboardButton.CallbackData("🔄 Обновить карточку", "edetail:$eventId")))
             } else {
                 val joinButton = if (isJoined) {

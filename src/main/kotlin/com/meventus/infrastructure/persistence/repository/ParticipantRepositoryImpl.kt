@@ -130,6 +130,7 @@ class ParticipantRepositoryImpl : ParticipantRepository {
         sbpPhone = row[EventsTable.sbpPhone],
         sbpName = row[EventsTable.sbpName],
         visibility = row[EventsTable.visibility],
+        registrationMode = row[EventsTable.registrationMode],
         groupChatId = row[EventsTable.groupChatId],
     )
 }

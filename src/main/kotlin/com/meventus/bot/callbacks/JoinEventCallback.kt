@@ -6,6 +6,7 @@ import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
 import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.PaymentType
 import com.meventus.domain.service.EventService
 import com.meventus.domain.service.ParticipantService
@@ -38,6 +39,10 @@ class JoinEventCallback(
 
             if (participantService.isParticipant(eventId, userId)) {
                 bot.answerCallbackQuery(callbackQuery.id, "Вы уже участвуете!")
+                return@callbackQuery
+            }
+            if (event.registrationMode == EventRegistrationMode.INVITE_ONLY) {
+                bot.answerCallbackQuery(callbackQuery.id, "Это мероприятие по приглашению")
                 return@callbackQuery
             }
 

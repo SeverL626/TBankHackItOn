@@ -19,5 +19,6 @@ data class Event(
     val sbpPhone: String? = null,
     val sbpName: String? = null,
     val visibility: EventVisibility = EventVisibility.PUBLIC,
+    val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
     val groupChatId: Long? = null,
 )

@@ -10,6 +10,7 @@ interface EventRepository {
     fun findUpcomingAll(now: Instant = Instant.now()): List<Event>
     fun findByTags(tags: Set<EventTag>, now: Instant = Instant.now()): List<Event>
     fun findByOwner(ownerId: Long): List<Event>
+    fun findByGroup(groupChatId: Long, now: Instant = Instant.now()): List<Event>
     fun save(event: Event): Event
     fun delete(id: Long)
 }

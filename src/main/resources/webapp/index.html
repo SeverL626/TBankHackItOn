@@ -263,6 +263,13 @@
       </select>
     </div>
     <div>
+      <div class="field-label">// ЗАПИСЬ</div>
+      <select class="field-input" id="editRegistrationMode">
+        <option value="FREE">Свободная</option>
+        <option value="INVITE_ONLY">По приглашению</option>
+      </select>
+    </div>
+    <div>
       <div class="field-label">// ОПЛАТА</div>
       <select class="field-input" id="editPaymentType">
         <option value="ON_SITE">На месте</option>
@@ -391,11 +398,12 @@
     var joinedClass = e.isParticipant ? ' joined' : '';
     var statusClass = 'status-' + e.status;
     var visibility = e.visibility === 'PRIVATE' ? '<span class="visibility-badge private">PRIVATE</span>' : '<span class="visibility-badge">PUBLIC</span>';
+    var registration = e.registrationMode === 'INVITE_ONLY' ? '<span class="visibility-badge private">INVITE</span>' : '<span class="visibility-badge">FREE</span>';
     return '<div class="event-card' + joinedClass + '" onclick="openDetail(' + e.id + ')">' +
       '<div class="card-title">' + esc(e.title) + ' <span class="' + statusClass + '" style="font-size:10px">[' + e.status + ']</span></div>' +
       '<div class="card-meta"><span>📍 ' + esc(e.address) + '</span><span>🕒 ' + date + '</span></div>' +
       (e.shortDescription ? '<div class="card-desc">' + esc(e.shortDescription) + '</div>' : '') +
-      '<div class="card-tags">' + visibility + tags + '</div>' +
+      '<div class="card-tags">' + visibility + registration + tags + '</div>' +
       '<div class="card-footer"><span class="card-cost">' + costStr + '</span><span class="card-count">👥 ' + e.participantCount + ' участников</span></div>' +
       '</div>';
   }
@@ -416,7 +424,9 @@
     var costStr = e.cost > 0 ? e.cost + '₽' : 'БЕСПЛАТНО';
     var joinBtn = '';
     if (userId) {
-      joinBtn = e.isParticipant
+      joinBtn = e.registrationMode === 'INVITE_ONLY' && !e.isParticipant
+        ? '<div style="color:var(--text-dim);font-size:11px">Запись по приглашению</div>'
+        : e.isParticipant
         ? '<button class="btn red" onclick="leaveEvent(' + e.id + ')">❌ ПОКИНУТЬ</button>'
         : '<button class="btn" onclick="joinEvent(' + e.id + ')">✅ УЧАСТВОВАТЬ</button>';
     } else {
@@ -440,6 +450,7 @@
         '<div class="detail-row"><div class="detail-label">// АДРЕС</div><div class="detail-value">📍 ' + esc(e.address) + '</div></div>' +
         '<div class="detail-row"><div class="detail-label">// СТОИМОСТЬ</div><div class="detail-value" style="color:var(--yellow)">' + costStr + '</div></div>' +
         '<div class="detail-row"><div class="detail-label">// ВИДИМОСТЬ</div><div class="detail-value">' + (e.visibility === 'PRIVATE' ? 'Приватное' : 'Публичное') + '</div></div>' +
+        '<div class="detail-row"><div class="detail-label">// ЗАПИСЬ</div><div class="detail-value">' + (e.registrationMode === 'INVITE_ONLY' ? 'По приглашению' : 'Свободная') + '</div></div>' +
         paymentHtml +
         '<div class="detail-row"><div class="detail-label">// ТЕГИ</div><div>' + tags + '</div></div>' +
         (e.shortDescription ? '<div class="detail-row"><div class="detail-label">// КРАТКО</div><div class="detail-desc">' + esc(e.shortDescription) + '</div></div>' : '') +
@@ -578,6 +589,7 @@
       address: '',
       cost: 0,
       visibility: 'PUBLIC',
+      registrationMode: 'FREE',
       paymentType: 'ON_SITE',
       sbpPhone: '',
       sbpName: '',
@@ -595,6 +607,7 @@
     document.getElementById('editAddress').value = e.address || '';
     document.getElementById('editCost').value = e.cost || 0;
     document.getElementById('editVisibility').value = e.visibility || 'PUBLIC';
+    document.getElementById('editRegistrationMode').value = e.registrationMode || 'FREE';
     document.getElementById('editPaymentType').value = e.paymentType || 'ON_SITE';
     document.getElementById('editSbpPhone').value = e.sbpPhone || '';
     document.getElementById('editSbpName').value = e.sbpName || '';
@@ -627,6 +640,7 @@
     var startsAt = document.getElementById('editStartsAt').value;
     var cost = document.getElementById('editCost').value || '0';
     var visibility = document.getElementById('editVisibility').value || 'PUBLIC';
+    var registrationMode = document.getElementById('editRegistrationMode').value || 'FREE';
     var paymentType = document.getElementById('editPaymentType').value || 'ON_SITE';
     var sbpPhone = document.getElementById('editSbpPhone').value.trim();
     var sbpName = document.getElementById('editSbpName').value.trim();
@@ -653,6 +667,7 @@
       '&startsAt=' + encodeURIComponent(startsAt) +
       '&cost=' + encodeURIComponent(cost) +
       '&visibility=' + encodeURIComponent(visibility) +
+      '&registrationMode=' + encodeURIComponent(registrationMode) +
       '&paymentType=' + encodeURIComponent(paymentType) +
       '&sbpPhone=' + encodeURIComponent(sbpPhone) +
       '&sbpName=' + encodeURIComponent(sbpName) +

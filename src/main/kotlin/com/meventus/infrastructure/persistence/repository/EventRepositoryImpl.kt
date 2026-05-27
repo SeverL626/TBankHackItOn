@@ -1,6 +1,7 @@
 package com.meventus.infrastructure.persistence.repository
 
 import com.meventus.domain.model.Event
+import com.meventus.domain.model.EventRegistrationMode
 import com.meventus.domain.model.EventStatus
 import com.meventus.domain.model.EventTag
 import com.meventus.domain.model.EventVisibility
@@ -80,6 +81,18 @@ class EventRepositoryImpl : EventRepository {
         attachTags(rows)
     }
 
+    override fun findByGroup(groupChatId: Long, now: Instant): List<Event> = transaction {
+        val rows = EventsTable.selectAll()
+            .where {
+                (EventsTable.groupChatId eq groupChatId) and
+                    (EventsTable.startsAt greaterEq now) and
+                    (EventsTable.status eq EventStatus.PUBLISHED)
+            }
+            .orderBy(EventsTable.startsAt, SortOrder.ASC)
+            .toList()
+        attachTags(rows)
+    }
+
     override fun save(event: Event): Event = transaction {
         if (event.id == 0L) {
             val id = EventsTable.insertAndGetId {
@@ -97,6 +110,7 @@ class EventRepositoryImpl : EventRepository {
                 it[sbpPhone] = event.sbpPhone
                 it[sbpName] = event.sbpName
                 it[visibility] = event.visibility
+                it[registrationMode] = event.registrationMode
                 it[groupChatId] = event.groupChatId
             }.value
             saveTags(id, event.tags)
@@ -115,6 +129,7 @@ class EventRepositoryImpl : EventRepository {
                 it[sbpPhone] = event.sbpPhone
                 it[sbpName] = event.sbpName
                 it[visibility] = event.visibility
+                it[registrationMode] = event.registrationMode
                 it[groupChatId] = event.groupChatId
             }
             EventTagsTable.deleteWhere { eventId eq event.id }
@@ -170,6 +185,7 @@ class EventRepositoryImpl : EventRepository {
         sbpPhone = row[EventsTable.sbpPhone],
         sbpName = row[EventsTable.sbpName],
         visibility = row[EventsTable.visibility],
+        registrationMode = row[EventsTable.registrationMode],
         groupChatId = row[EventsTable.groupChatId],
     )
 }
