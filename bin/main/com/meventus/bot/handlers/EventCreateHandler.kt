@@ -33,7 +33,19 @@ class EventCreateHandler(
             if (normalized.startsWith("/") && normalized != "/cancel") return@text
 
             // Keyboard menu buttons also trigger text{} — ignore them
-            if (normalized in setOf("📋 мероприятия", "⭐ мои события", "➕ создать событие", "📢 рассылка", "📊 статистика")) return@text
+            if (normalized in setOf(
+                    "📋 мероприятия",
+                    "🔎 найти",
+                    "⭐ мои события",
+                    "👤 мои",
+                    "➕ создать событие",
+                    "➕ создать",
+                    "📢 рассылка",
+                    "📊 статистика",
+                    "🌐 mini app",
+                    "❓ помощь",
+                )
+            ) return@text
 
             if (normalized in listOf("отмена", "cancel", "/cancel")) {
                 val state = stateStorage.get(userId)
@@ -48,23 +60,23 @@ class EventCreateHandler(
                 is UserState.Idle -> return@text
 
                 is UserState.AwaitingEventTitle -> {
-                    stateStorage.set(userId, UserState.AwaitingEventShortDesc(text))
-                    bot.sendMessage(chatId, "Шаг 2/8 — Введите *краткое описание* (1–2 строки, покажется в списке):", parseMode = ParseMode.MARKDOWN)
+                    stateStorage.set(userId, UserState.AwaitingEventShortDesc(text, state.visibility, state.groupChatId))
+                    bot.sendMessage(chatId, "Шаг 2/8 — введи *краткое описание* для карточки.\nНапример: `Встречаемся обсудить проекты и познакомиться`", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventShortDesc -> {
-                    stateStorage.set(userId, UserState.AwaitingEventDescription(state.title, text))
-                    bot.sendMessage(chatId, "Шаг 3/8 — Введите *полное описание*:", parseMode = ParseMode.MARKDOWN)
+                    stateStorage.set(userId, UserState.AwaitingEventDescription(state.title, text, state.visibility, state.groupChatId))
+                    bot.sendMessage(chatId, "Шаг 3/8 — введи *полное описание*: что будет, кому подойдёт, что взять с собой.", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventDescription -> {
-                    stateStorage.set(userId, UserState.AwaitingEventAddress(state.title, state.shortDesc, text))
-                    bot.sendMessage(chatId, "Шаг 4/8 — Введите *адрес* проведения:", parseMode = ParseMode.MARKDOWN)
+                    stateStorage.set(userId, UserState.AwaitingEventAddress(state.title, state.shortDesc, text, state.visibility, state.groupChatId))
+                    bot.sendMessage(chatId, "Шаг 4/8 — введи *адрес*.\nНапример: `Москва, Тверская 1` или `онлайн`.", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventAddress -> {
-                    stateStorage.set(userId, UserState.AwaitingEventDate(state.title, state.shortDesc, state.description, text))
-                    bot.sendMessage(chatId, "Шаг 5/8 — Введите *дату и время* в формате `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
+                    stateStorage.set(userId, UserState.AwaitingEventDate(state.title, state.shortDesc, state.description, text, state.visibility, state.groupChatId))
+                    bot.sendMessage(chatId, "Шаг 5/8 — введи *дату и время*.\nФормат: `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventDate -> {
@@ -73,8 +85,8 @@ class EventCreateHandler(
                         bot.sendMessage(chatId, "Неверный формат. Введите дату так: `25.05.2026 18:00`", parseMode = ParseMode.MARKDOWN)
                         return@text
                     }
-                    stateStorage.set(userId, UserState.AwaitingEventCost(state.title, state.shortDesc, state.description, state.address, text))
-                    bot.sendMessage(chatId, "Шаг 6/8 — Введите *стоимость* участия в рублях (0 — бесплатно):", parseMode = ParseMode.MARKDOWN)
+                    stateStorage.set(userId, UserState.AwaitingEventCost(state.title, state.shortDesc, state.description, state.address, text, state.visibility, state.groupChatId))
+                    bot.sendMessage(chatId, "Шаг 6/8 — введи *стоимость* в рублях.\n`0` — если бесплатно.", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventCost -> {
@@ -84,11 +96,11 @@ class EventCreateHandler(
                         return@text
                     }
                     stateStorage.set(userId, UserState.AwaitingEventPaymentType(
-                        state.title, state.shortDesc, state.description, state.address, state.startsAt, cost,
+                        state.title, state.shortDesc, state.description, state.address, state.startsAt, cost, state.visibility, state.groupChatId,
                     ))
                     bot.sendMessage(
                         chatId = chatId,
-                        text = "Шаг 7/8 — Выберите *способ оплаты*:",
+                        text = "Шаг 7/8 — выбери *способ оплаты*.",
                         parseMode = ParseMode.MARKDOWN,
                         replyMarkup = paymentKeyboard(),
                     )
@@ -100,9 +112,9 @@ class EventCreateHandler(
                     val phone = text.trim()
                     stateStorage.set(userId, UserState.AwaitingEventSbpName(
                         state.title, state.shortDesc, state.description, state.address,
-                        state.startsAt, state.cost, phone,
+                        state.startsAt, state.cost, phone, state.visibility, state.groupChatId,
                     ))
-                    bot.sendMessage(chatId, "Введите *имя получателя* (как отображается в СБП):", parseMode = ParseMode.MARKDOWN)
+                    bot.sendMessage(chatId, "Теперь введи *имя получателя* как в СБП.", parseMode = ParseMode.MARKDOWN)
                 }
 
                 is UserState.AwaitingEventSbpName -> {
@@ -111,10 +123,12 @@ class EventCreateHandler(
                         title = state.title, shortDesc = state.shortDesc, description = state.description,
                         address = state.address, startsAt = state.startsAt, cost = state.cost,
                         paymentType = PaymentType.ADVANCE, sbpPhone = state.sbpPhone, sbpName = sbpName,
+                        visibility = state.visibility,
+                        groupChatId = state.groupChatId,
                     ))
                     bot.sendMessage(
                         chatId = chatId,
-                        text = "Шаг 8/8 — Отправьте *фото* мероприятия или напишите `пропустить`:",
+                        text = "Шаг 8/8 — отправь *фото* мероприятия или напиши `пропустить`.",
                         parseMode = ParseMode.MARKDOWN,
                     )
                 }
@@ -185,6 +199,8 @@ class EventCreateHandler(
                         paymentType = state.paymentType,
                         sbpPhone = state.sbpPhone,
                         sbpName = state.sbpName,
+                        visibility = state.visibility,
+                        groupChatId = state.groupChatId,
                     )
                     stateStorage.clear(userId)
                     val paymentInfo = when (event.paymentType) {
@@ -195,9 +211,22 @@ class EventCreateHandler(
                     bot.editMessageText(
                         chatId = ChatId.fromId(chatId),
                         messageId = messageId,
-                        text = "✅ *${event.title}* создано!$paymentInfo\n\nID: `${event.id}`\nНайди его через /events",
+                        text = if (state.groupChatId != null) {
+                            "✅ *${event.title}* создано для группы!$paymentInfo\n\nID: `${event.id}`"
+                        } else {
+                            "✅ *${event.title}* создано!$paymentInfo\n\nID: `${event.id}`\nНайди его через /events"
+                        },
                         parseMode = ParseMode.MARKDOWN,
                     )
+                    if (state.groupChatId != null) {
+                        runCatching {
+                            bot.sendMessage(
+                                chatId = ChatId.fromId(state.groupChatId),
+                                text = "Новое мероприятие группы: *${event.title}*\nДата: ${DateUtils.format(event.startsAt)}\nОткройте /gevents, чтобы записаться.",
+                                parseMode = ParseMode.MARKDOWN,
+                            )
+                        }
+                    }
                 }
 
                 data.startsWith("cpaytype:") -> {
@@ -210,20 +239,22 @@ class EventCreateHandler(
                             title = state.title, shortDesc = state.shortDesc, description = state.description,
                             address = state.address, startsAt = state.startsAt, cost = state.cost,
                             paymentType = PaymentType.ON_SITE,
+                            visibility = state.visibility,
+                            groupChatId = state.groupChatId,
                         ))
                         bot.editMessageText(
                             chatId = ChatId.fromId(chatId), messageId = messageId,
-                            text = "Шаг 8/8 — Отправьте *фото* мероприятия или напишите `пропустить`:",
+                            text = "Шаг 8/8 — отправь *фото* мероприятия или напиши `пропустить`.",
                             parseMode = ParseMode.MARKDOWN,
                         )
                     } else {
                         stateStorage.set(userId, UserState.AwaitingEventSbpPhone(
-                            state.title, state.shortDesc, state.description,
-                            state.address, state.startsAt, state.cost,
+                        state.title, state.shortDesc, state.description,
+                            state.address, state.startsAt, state.cost, state.visibility, state.groupChatId,
                         ))
                         bot.editMessageText(
                             chatId = ChatId.fromId(chatId), messageId = messageId,
-                            text = "Введите *номер телефона* для приёма СБП (например: `+79991234567`):",
+                            text = "Введи *номер телефона* для приёма СБП.\nНапример: `+79991234567`",
                             parseMode = ParseMode.MARKDOWN,
                         )
                     }
@@ -261,11 +292,13 @@ class EventCreateHandler(
                 paymentType = state.paymentType,
                 sbpPhone = state.sbpPhone,
                 sbpName = state.sbpName,
+                visibility = state.visibility,
+                groupChatId = state.groupChatId,
             ),
         )
         bot.sendMessage(
             chatId = chatId,
-            text = "Выберите *теги* мероприятия (можно несколько), затем нажмите *Готово*:",
+            text = "Последний шаг — выбери *теги*, чтобы людям было проще найти мероприятие. Можно несколько. Потом нажми *Готово*.",
             parseMode = ParseMode.MARKDOWN,
             replyMarkup = TagKeyboard.forCreate(emptySet()),
         )

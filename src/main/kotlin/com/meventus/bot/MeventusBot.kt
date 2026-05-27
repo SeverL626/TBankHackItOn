@@ -66,7 +66,7 @@ class MeventusBot(private val config: AppConfig) {
 
                 // Commands
                 CancelCommand(stateStorage).register(this)
-                StartCommand(userService).register(this)
+                StartCommand(userService, stateStorage).register(this)
                 HelpCommand().register(this)
                 CreateEventCommand(stateStorage).register(this)
                 ListEventsCommand(eventService, participantService).register(this)

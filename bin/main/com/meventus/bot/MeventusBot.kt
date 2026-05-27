@@ -17,8 +17,10 @@ import com.meventus.bot.commands.StartCommand
 import com.meventus.bot.commands.StatsCommand
 import com.meventus.bot.handlers.BroadcastHandler
 import com.meventus.bot.handlers.EventCreateHandler
+import com.meventus.bot.handlers.GroupEventHandler
 import com.meventus.bot.handlers.MenuKeyboardHandler
 import com.meventus.bot.handlers.PaymentHandler
+import com.meventus.bot.notifications.EventReminderService
 import com.meventus.bot.states.InMemoryStateStorage
 import com.meventus.bot.stats.StatsStorage
 import com.meventus.config.AppConfig
@@ -50,6 +52,9 @@ class MeventusBot(private val config: AppConfig) {
                 // Keyboard button handler (must be before FSM handlers)
                 MenuKeyboardHandler(eventService, participantService, stateStorage, config.webApp.url).register(this)
 
+                // Group flow: @bot create event | ... | @users.
+                GroupEventHandler(eventService, participantService, userService, config.bot.username).register(this)
+
                 // FSM: event creation
                 EventCreateHandler(eventService, stateStorage).register(this)
 
@@ -61,7 +66,7 @@ class MeventusBot(private val config: AppConfig) {
 
                 // Commands
                 CancelCommand(stateStorage).register(this)
-                StartCommand(userService).register(this)
+                StartCommand(userService, stateStorage).register(this)
                 HelpCommand().register(this)
                 CreateEventCommand(stateStorage).register(this)
                 ListEventsCommand(eventService, participantService).register(this)
@@ -72,7 +77,7 @@ class MeventusBot(private val config: AppConfig) {
                 // Callbacks
                 EventDetailCallback(eventService, participantService).register(this)
                 JoinEventCallback(eventService, participantService).register(this)
-                LeaveEventCallback(participantService).register(this)
+                LeaveEventCallback(participantService, eventService).register(this)
             }
         }
 
@@ -85,11 +90,16 @@ class MeventusBot(private val config: AppConfig) {
                 BotCommand("new", "Создать мероприятие"),
                 BotCommand("my", "Мои мероприятия"),
                 BotCommand("broadcast", "Рассылка участникам"),
+                BotCommand("group_new", "Создать мероприятие из группы"),
+                BotCommand("gevents", "Мероприятия текущей группы"),
+                BotCommand("ginvite", "Пригласить участников в событие группы"),
+                BotCommand("ghelp", "Помощь по групповому режиму"),
                 BotCommand("stats", "Статистика и мини-приложение"),
                 BotCommand("help", "Помощь"),
             ),
         )
 
+        EventReminderService(bot, eventService, participantService).start()
         bot.startPolling()
     }
 }
