@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MEVENTUS_OS v2.0</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #080810;
+    --bg2: #0d0d1a;
+    --green: #00ff41;
+    --cyan: #00e5ff;
+    --magenta: #ff00ff;
+    --yellow: #ffff00;
+    --red: #ff3333;
+    --dim: #003300;
+    --border: #00ff4133;
+    --card-bg: #0a0a18;
+    --text: #c0ffc0;
+    --text-dim: #408040;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg) !important; color: var(--text); font-family: 'Courier New', monospace; font-size: 13px; overflow-x: hidden; }
+
+  body::before {
+    content: '';
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+
+  .header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--green);
+    padding: 8px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { color: var(--green); font-size: 14px; font-weight: bold; letter-spacing: 3px; text-shadow: 0 0 8px var(--green); }
+  .logo span { color: var(--magenta); }
+  .user-badge { color: var(--cyan); font-size: 11px; }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 41px; z-index: 99; }
+  .tab {
+    flex: 1; padding: 10px 4px; text-align: center; cursor: pointer;
+    color: var(--text-dim); font-size: 11px; letter-spacing: 1px; border: none;
+    background: none; border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .tab.active { color: var(--green); border-bottom-color: var(--green); text-shadow: 0 0 6px var(--green); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .panel { display: none; padding: 12px; }
+  .panel.active { display: block; }
+
+  .search-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+  .search-input {
+    flex: 1; background: var(--card-bg); border: 1px solid var(--green);
+    color: var(--green); padding: 7px 10px; font-family: inherit; font-size: 12px;
+    outline: none;
+  }
+  .search-input::placeholder { color: var(--dim); }
+  .search-input:focus { box-shadow: 0 0 8px var(--green); }
+  .btn {
+    background: transparent; border: 1px solid var(--green); color: var(--green);
+    padding: 7px 12px; font-family: inherit; font-size: 12px; cursor: pointer; letter-spacing: 1px;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: var(--green); color: var(--bg); }
+  .btn.red { border-color: var(--red); color: var(--red); }
+  .btn.red:hover { background: var(--red); color: var(--bg); }
+
+  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip {
+    padding: 4px 10px; font-family: inherit; font-size: 11px; cursor: pointer;
+    border: 1px solid var(--border); color: var(--text-dim); background: var(--card-bg);
+    letter-spacing: 1px; transition: all 0.15s;
+  }
+  .chip.active { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+
+  .event-list { display: flex; flex-direction: column; gap: 8px; }
+  .event-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    padding: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .event-card:hover { border-color: var(--green); }
+  .event-card.joined { border-left: 3px solid var(--green); }
+  .card-title { color: var(--green); font-size: 13px; font-weight: bold; margin-bottom: 4px; }
+  .card-meta { color: var(--text-dim); font-size: 11px; margin-bottom: 6px; }
+  .card-meta span { margin-right: 10px; }
+  .card-desc { color: var(--text); font-size: 12px; margin-bottom: 8px; opacity: 0.8; }
+  .card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .tag-badge { padding: 2px 6px; font-size: 10px; border: 1px solid; letter-spacing: 1px; }
+  .tag-IT { border-color: var(--cyan); color: var(--cyan); }
+  .tag-SPORT { border-color: var(--yellow); color: var(--yellow); }
+  .tag-OUTDOORS { border-color: #00ff88; color: #00ff88; }
+  .tag-INDOORS { border-color: var(--magenta); color: var(--magenta); }
+  .card-footer { display: flex; justify-content: space-between; align-items: center; }
+  .card-cost { color: var(--yellow); font-size: 12px; }
+  .card-count { color: var(--text-dim); font-size: 11px; }
+
+  .detail-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg); z-index: 200; overflow-y: auto;
+  }
+  .detail-overlay.open { display: block; }
+  .detail-header {
+    background: var(--bg2); border-bottom: 1px solid var(--green);
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0;
+  }
+  .back-btn { color: var(--green); background: none; border: 1px solid var(--green); padding: 4px 10px; font-family: inherit; font-size: 12px; cursor: pointer; }
+  .detail-title { color: var(--green); font-size: 14px; font-weight: bold; text-shadow: 0 0 8px var(--green); }
+  .detail-body { padding: 16px; }
+  .detail-row { margin-bottom: 12px; }
+  .detail-label { color: var(--text-dim); font-size: 11px; letter-spacing: 2px; margin-bottom: 3px; }
+  .detail-value { color: var(--text); font-size: 13px; }
+  .detail-desc { color: var(--text); font-size: 12px; line-height: 1.6; opacity: 0.9; }
+  .detail-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .detail-stats {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;
+    background: var(--bg2); border: 1px solid var(--border); padding: 10px;
+  }
+  .stat-box { text-align: center; }
+  .stat-num { color: var(--cyan); font-size: 20px; font-weight: bold; }
+  .stat-lbl { color: var(--text-dim); font-size: 10px; letter-spacing: 1px; }
+
+  .admin-card { background: var(--card-bg); border: 1px solid var(--border); padding: 12px; margin-bottom: 8px; cursor: pointer; }
+  .admin-card:hover { border-color: var(--magenta); }
+  .admin-title { color: var(--magenta); font-size: 13px; font-weight: bold; margin-bottom: 6px; }
+  .admin-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .admin-stat { background: var(--bg); border: 1px solid var(--border); padding: 6px; text-align: center; }
+  .admin-stat-num { color: var(--yellow); font-size: 16px; font-weight: bold; }
+  .admin-stat-lbl { color: var(--text-dim); font-size: 10px; }
+
+  .empty { text-align: center; color: var(--text-dim); padding: 40px 20px; font-size: 12px; letter-spacing: 2px; }
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .loader { text-align: center; color: var(--green); padding: 30px; }
+
+  /* edit form overlay */
+  .edit-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(8,8,16,0.97); z-index: 300; overflow-y: auto; padding: 0;
+  }
+  .edit-overlay.open { display: block; }
+  .edit-header {
+    background: var(--bg2); border-bottom: 1px solid var(--magenta);
+    padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0;
+  }
+  .edit-header-title { color: var(--magenta); font-size: 14px; font-weight: bold; text-shadow: 0 0 6px var(--magenta); }
+  .edit-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .field-label { color: var(--text-dim); font-size: 11px; letter-spacing: 2px; margin-bottom: 4px; }
+  .field-input, .field-textarea {
+    width: 100%; background: var(--card-bg); border: 1px solid var(--green);
+    color: var(--green); padding: 8px 10px; font-family: inherit; font-size: 12px; outline: none;
+  }
+  .field-input:focus, .field-textarea:focus { box-shadow: 0 0 8px var(--green); }
+  .field-textarea { resize: vertical; min-height: 70px; }
+  .tag-check-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .tag-check input { accent-color: var(--cyan); width: 14px; height: 14px; }
+  .tag-check span { font-size: 12px; color: var(--text); }
+  .edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .btn-save { background: var(--green); color: var(--bg); border: none; padding: 10px 20px; font-family: inherit; font-size: 13px; font-weight: bold; cursor: pointer; letter-spacing: 1px; }
+  .btn-save:hover { background: #00cc33; }
+  .btn-cancel-edit { background: transparent; border: 1px solid var(--text-dim); color: var(--text-dim); padding: 10px 16px; font-family: inherit; font-size: 12px; cursor: pointer; }
+  .edit-msg { font-size: 12px; margin-top: 6px; min-height: 18px; }
+
+  .status-PUBLISHED { color: var(--green); }
+  .status-CANCELLED { color: var(--red); }
+  .status-FINISHED { color: var(--text-dim); }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg2); }
+  ::-webkit-scrollbar-thumb { background: var(--dim); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--green); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">MEV<span>ENTUS</span><span style="color:var(--text-dim)">_OS</span></div>
+  <div class="user-badge" id="userBadge">USER: GUEST</div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="events" onclick="showTab(this,'events')">[ EVENTS ]</button>
+  <button class="tab" data-tab="mine" onclick="showTab(this,'mine')">[ MINE ]</button>
+  <button class="tab" data-tab="admin" onclick="showTab(this,'admin')">[ ADMIN ]</button>
+</div>
+
+<div id="tab-events" class="panel active">
+  <div class="search-row">
+    <input class="search-input" id="searchInput" placeholder="> SEARCH EVENTS..." oninput="onSearch()">
+  </div>
+  <div class="tag-row" id="tagRow"></div>
+  <div class="event-list" id="eventList"><div class="loader"><span class="blink">█</span> LOADING...</div></div>
+</div>
+
+<div id="tab-mine" class="panel">
+  <div class="event-list" id="mineList"><div class="loader"><span class="blink">█</span> LOADING...</div></div>
+</div>
+
+<div id="tab-admin" class="panel">
+  <div id="adminPanel"><div class="loader"><span class="blink">█</span> LOADING...</div></div>
+</div>
+
+<div class="detail-overlay" id="detailOverlay">
+  <div class="detail-header">
+    <button class="back-btn" onclick="closeDetail()">← BACK</button>
+    <div class="detail-title" id="detailTitle">EVENT DETAILS</div>
+  </div>
+  <div class="detail-body" id="detailBody"></div>
+</div>
+
+<!-- EDIT OVERLAY -->
+<div class="edit-overlay" id="editOverlay">
+  <div class="edit-header">
+    <button class="back-btn" style="border-color:var(--magenta);color:var(--magenta)" onclick="closeEdit()">← BACK</button>
+    <div class="edit-header-title">// EDIT EVENT</div>
+  </div>
+  <div class="edit-body">
+    <input type="hidden" id="editId">
+    <div>
+      <div class="field-label">// НАЗВАНИЕ</div>
+      <input class="field-input" id="editTitle" placeholder="Название мероприятия">
+    </div>
+    <div>
+      <div class="field-label">// КРАТКОЕ ОПИСАНИЕ</div>
+      <textarea class="field-textarea" id="editShortDesc" placeholder="1–2 строки для карточки" rows="2"></textarea>
+    </div>
+    <div>
+      <div class="field-label">// ПОЛНОЕ ОПИСАНИЕ</div>
+      <textarea class="field-textarea" id="editDesc" placeholder="Подробное описание" rows="4"></textarea>
+    </div>
+    <div>
+      <div class="field-label">// АДРЕС</div>
+      <input class="field-input" id="editAddress" placeholder="Адрес проведения">
+    </div>
+    <div>
+      <div class="field-label">// ДАТА И ВРЕМЯ</div>
+      <input class="field-input" id="editStartsAt" type="datetime-local">
+    </div>
+    <div>
+      <div class="field-label">// СТОИМОСТЬ (₽, 0 = бесплатно)</div>
+      <input class="field-input" id="editCost" type="number" min="0" placeholder="0">
+    </div>
+    <div>
+      <div class="field-label">// ТЕГИ</div>
+      <div class="tag-check-row">
+        <label class="tag-check"><input type="checkbox" value="1" class="editTag"> <span class="tag-IT">💻 IT</span></label>
+        <label class="tag-check"><input type="checkbox" value="2" class="editTag"> <span class="tag-SPORT">⚽ SPORT</span></label>
+        <label class="tag-check"><input type="checkbox" value="4" class="editTag"> <span class="tag-OUTDOORS">🏕 OUTDOORS</span></label>
+        <label class="tag-check"><input type="checkbox" value="8" class="editTag"> <span class="tag-INDOORS">🏠 INDOORS</span></label>
+      </div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn-save" onclick="saveEdit()">💾 СОХРАНИТЬ</button>
+      <button class="btn-cancel-edit" onclick="closeEdit()">ОТМЕНА</button>
+    </div>
+    <div class="edit-msg" id="editMsg"></div>
+  </div>
+</div>
+
+<script>
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    tg.setBackgroundColor('#080810');
+    tg.setHeaderColor('#0d0d1a');
+  }
+
+  const initData = (tg && tg.initData) || '';
+  const userId = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || 0;
+  const userName = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.first_name) || 'GUEST';
+
+  document.getElementById('userBadge').textContent = 'USER: ' + userName.toUpperCase();
+
+  function authHeaders(extra) {
+    var headers = extra || {};
+    if (initData) headers['X-Telegram-Init-Data'] = initData;
+    return headers;
+  }
+
+  const TAGS = [
+    { name: 'IT', label: '💻 IT', bit: 1 },
+    { name: 'SPORT', label: '⚽ SPORT', bit: 2 },
+    { name: 'OUTDOORS', label: '🏕 OUT', bit: 4 },
+    { name: 'INDOORS', label: '🏠 IN', bit: 8 },
+  ];
+
+  var activeTags = new Set();
+  var allEvents = [];
+  var searchTimer = null;
+  var mineLoaded = false;
+  var adminLoaded = false;
+
+  // build tag chips
+  var tagRow = document.getElementById('tagRow');
+  TAGS.forEach(function(t) {
+    var el = document.createElement('div');
+    el.className = 'chip';
+    el.textContent = t.label;
+    el.dataset.tag = t.name;
+    el.onclick = function() { toggleTag(t.name, el); };
+    tagRow.appendChild(el);
+  });
+
+  function toggleTag(name, el) {
+    if (activeTags.has(name)) { activeTags.delete(name); el.classList.remove('active'); }
+    else { activeTags.add(name); el.classList.add('active'); }
+    loadEvents();
+  }
+
+  function tagBitmask() {
+    var result = 0;
+    TAGS.forEach(function(t) { if (activeTags.has(t.name)) result |= t.bit; });
+    return result;
+  }
+
+  function onSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(filterLocal, 300);
+  }
+
+  function filterLocal() {
+    var q = document.getElementById('searchInput').value.toLowerCase();
+    var filtered = q ? allEvents.filter(function(e) {
+      return e.title.toLowerCase().indexOf(q) >= 0 ||
+        (e.shortDescription || '').toLowerCase().indexOf(q) >= 0 ||
+        (e.address || '').toLowerCase().indexOf(q) >= 0;
+    }) : allEvents;
+    renderEventList(filtered, 'eventList');
+  }
+
+  function loadEvents() {
+    var tags = tagBitmask();
+    document.getElementById('eventList').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
+    fetch('/api/events?tags=' + tags, { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { allEvents = data; filterLocal(); })
+      .catch(function() { document.getElementById('eventList').innerHTML = '<div class="empty">⚠ CONNECTION FAILED</div>'; });
+  }
+
+  function renderEventList(events, containerId) {
+    var el = document.getElementById(containerId);
+    if (!events || !events.length) {
+      el.innerHTML = '<div class="empty">NO EVENTS FOUND<br><span class="blink">_</span></div>';
+      return;
+    }
+    el.innerHTML = events.map(function(e) { return eventCard(e); }).join('');
+  }
+
+  function eventCard(e) {
+    var date = formatDate(e.startsAt);
+    var tags = (e.tags || []).map(function(t) { return '<span class="tag-badge tag-' + t + '">' + t + '</span>'; }).join('');
+    var costStr = e.cost > 0 ? e.cost + '₽' : 'FREE';
+    var joinedClass = e.isParticipant ? ' joined' : '';
+    var statusClass = 'status-' + e.status;
+    return '<div class="event-card' + joinedClass + '" onclick="openDetail(' + e.id + ')">' +
+      '<div class="card-title">' + esc(e.title) + ' <span class="' + statusClass + '" style="font-size:10px">[' + e.status + ']</span></div>' +
+      '<div class="card-meta"><span>📍 ' + esc(e.address) + '</span><span>🕒 ' + date + '</span></div>' +
+      (e.shortDescription ? '<div class="card-desc">' + esc(e.shortDescription) + '</div>' : '') +
+      '<div class="card-tags">' + tags + '</div>' +
+      '<div class="card-footer"><span class="card-cost">' + costStr + '</span><span class="card-count">👥 ' + e.participantCount + ' участников</span></div>' +
+      '</div>';
+  }
+
+  function openDetail(id) {
+    document.getElementById('detailBody').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
+    document.getElementById('detailOverlay').classList.add('open');
+    fetch('/api/event?id=' + id, { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(e) { renderDetail(e); })
+      .catch(function() { document.getElementById('detailBody').innerHTML = '<div class="empty">⚠ LOAD ERROR</div>'; });
+  }
+
+  function renderDetail(e) {
+    document.getElementById('detailTitle').textContent = e.title;
+    var date = formatDate(e.startsAt);
+    var tags = (e.tags || []).map(function(t) { return '<span class="tag-badge tag-' + t + '">' + t + '</span>'; }).join(' ');
+    var costStr = e.cost > 0 ? e.cost + '₽' : 'БЕСПЛАТНО';
+    var joinBtn = '';
+    if (userId) {
+      joinBtn = e.isParticipant
+        ? '<button class="btn red" onclick="leaveEvent(' + e.id + ')">❌ ПОКИНУТЬ</button>'
+        : '<button class="btn" onclick="joinEvent(' + e.id + ')">✅ УЧАСТВОВАТЬ</button>';
+    } else {
+      joinBtn = '<div style="color:var(--text-dim);font-size:11px">Откройте через Telegram для записи</div>';
+    }
+    var photoHtml = e.photoUrl ? '<div style="text-align:center;margin-bottom:14px"><img src="' + e.photoUrl + '" style="max-width:100%;max-height:220px;border-radius:6px;border:1px solid var(--border)" onerror="this.style.display=\'none\'"></div>' : '';
+    var paymentHtml = '';
+    if (e.paymentType === 'ADVANCE' && e.sbpPhone) {
+      paymentHtml = '<div class="detail-row"><div class="detail-label">// ОПЛАТА</div><div class="detail-value">💳 СБП: <code>' + esc(e.sbpPhone) + '</code> — ' + esc(e.sbpName || '') + '</div></div>';
+    } else if (e.paymentType === 'ON_SITE') {
+      paymentHtml = e.cost > 0 ? '<div class="detail-row"><div class="detail-label">// ОПЛАТА</div><div class="detail-value">💵 На месте</div></div>' : '';
+    }
+    document.getElementById('detailBody').innerHTML =
+      photoHtml +
+      '<div class="detail-stats">' +
+        '<div class="stat-box"><div class="stat-num">' + e.participantCount + '</div><div class="stat-lbl">УЧАСТНИКОВ</div></div>' +
+        '<div class="stat-box"><div class="stat-num">' + (e.totalContributed > 0 ? e.totalContributed + '₽' : '—') + '</div><div class="stat-lbl">ВЗНОСОВ</div></div>' +
+      '</div>' +
+      '<div style="margin-top:14px">' +
+        '<div class="detail-row"><div class="detail-label">// ДАТА И ВРЕМЯ</div><div class="detail-value">🕒 ' + date + '</div></div>' +
+        '<div class="detail-row"><div class="detail-label">// АДРЕС</div><div class="detail-value">📍 ' + esc(e.address) + '</div></div>' +
+        '<div class="detail-row"><div class="detail-label">// СТОИМОСТЬ</div><div class="detail-value" style="color:var(--yellow)">' + costStr + '</div></div>' +
+        paymentHtml +
+        '<div class="detail-row"><div class="detail-label">// ТЕГИ</div><div>' + tags + '</div></div>' +
+        (e.shortDescription ? '<div class="detail-row"><div class="detail-label">// КРАТКО</div><div class="detail-desc">' + esc(e.shortDescription) + '</div></div>' : '') +
+        (e.description ? '<div class="detail-row"><div class="detail-label">// ОПИСАНИЕ</div><div class="detail-desc">' + esc(e.description) + '</div></div>' : '') +
+      '</div>' +
+      '<div class="detail-actions">' + joinBtn + '</div>';
+  }
+
+  function closeDetail() {
+    document.getElementById('detailOverlay').classList.remove('open');
+    loadEvents();
+    if (mineLoaded) loadMine();
+  }
+
+  function joinEvent(eventId) {
+    fetch('/api/join', { method: 'POST', headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}), body: 'eventId=' + eventId })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok && data.paymentRequired) {
+          alert('💳 Инструкции по оплате отправлены в ваш Telegram-чат с ботом. Нажмите «Я перевёл деньги» после перевода.');
+        } else if (data.ok) {
+          openDetail(eventId);
+        } else {
+          alert(data.error || 'Error');
+        }
+      });
+  }
+
+  function leaveEvent(eventId) {
+    fetch('/api/leave', { method: 'POST', headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}), body: 'eventId=' + eventId })
+      .then(function() { openDetail(eventId); });
+  }
+
+  function loadMine() {
+    if (!userId) {
+      document.getElementById('mineList').innerHTML = '<div class="empty">Откройте через Telegram</div>';
+      return;
+    }
+    document.getElementById('mineList').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
+    fetch('/api/events', { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(all) {
+        var mine = all.filter(function(e) { return e.isParticipant || e.ownerId == userId; });
+        renderEventList(mine, 'mineList');
+        mineLoaded = true;
+      })
+      .catch(function() { document.getElementById('mineList').innerHTML = '<div class="empty">⚠ ERROR</div>'; });
+  }
+
+  function loadAdmin() {
+    if (!userId) {
+      document.getElementById('adminPanel').innerHTML = '<div class="empty">Откройте через Telegram</div>';
+      return;
+    }
+    document.getElementById('adminPanel').innerHTML = '<div class="loader"><span class="blink">█</span> LOADING...</div>';
+    fetch('/api/admin', { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(events) {
+        if (!events || !events.length) {
+          document.getElementById('adminPanel').innerHTML = '<div class="empty">У вас нет мероприятий<br><span class="blink">_</span></div>';
+          return;
+        }
+        var totalPeople = events.reduce(function(s, e) { return s + e.participantCount; }, 0);
+        var totalMoney = events.reduce(function(s, e) { return s + e.totalContributed; }, 0);
+        var html = '<div style="background:var(--bg2);border:1px solid var(--magenta);padding:10px;margin-bottom:12px">' +
+          '<div style="color:var(--magenta);font-size:11px;letter-spacing:2px;margin-bottom:8px">// ИТОГО</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+            '<div class="admin-stat"><div class="admin-stat-num">' + events.length + '</div><div class="admin-stat-lbl">СОБЫТИЙ</div></div>' +
+            '<div class="admin-stat"><div class="admin-stat-num">' + totalPeople + '</div><div class="admin-stat-lbl">УЧАСТНИКОВ</div></div>' +
+            '<div class="admin-stat"><div class="admin-stat-num">' + (totalMoney > 0 ? totalMoney + '₽' : '—') + '</div><div class="admin-stat-lbl">ВЗНОСОВ</div></div>' +
+          '</div></div>';
+        html += events.map(function(e) {
+          var tags = (e.tags || []).map(function(t) { return '<span class="tag-badge tag-' + t + '">' + t + '</span>'; }).join(' ');
+          var date = formatDate(e.startsAt);
+          var costStr = e.cost > 0 ? e.cost + '₽' : 'FREE';
+          return '<div class="admin-card">' +
+            '<div class="admin-title">' + esc(e.title) + ' <span style="font-size:10px;color:var(--text-dim)">[' + e.status + ']</span></div>' +
+            '<div style="color:var(--text-dim);font-size:11px;margin-bottom:8px">🕒 ' + date + ' &nbsp;📍 ' + esc(e.address) + '</div>' +
+            '<div class="admin-grid">' +
+              '<div class="admin-stat"><div class="admin-stat-num">' + e.participantCount + '</div><div class="admin-stat-lbl">УЧАСТНИКОВ</div></div>' +
+              '<div class="admin-stat"><div class="admin-stat-num">' + (e.totalContributed > 0 ? e.totalContributed + '₽' : '—') + '</div><div class="admin-stat-lbl">ВЗНОСОВ</div></div>' +
+              '<div class="admin-stat"><div class="admin-stat-num">' + costStr + '</div><div class="admin-stat-lbl">ВЗНОС</div></div>' +
+            '</div>' +
+            '<div style="margin-bottom:8px">' + tags + '</div>' +
+            '<div style="display:flex;gap:8px">' +
+              '<button class="btn" style="font-size:11px;padding:5px 12px" onclick="openDetail(' + e.id + ')">👁 ДЕТАЛИ</button>' +
+              '<button class="btn" style="font-size:11px;padding:5px 12px;border-color:var(--magenta);color:var(--magenta)" onclick="openEdit(' + e.id + ',event)">✏ ИЗМЕНИТЬ</button>' +
+            '</div>' +
+            '</div>';
+        }).join('');
+        document.getElementById('adminPanel').innerHTML = html;
+        adminLoaded = true;
+      })
+      .catch(function() { document.getElementById('adminPanel').innerHTML = '<div class="empty">⚠ ERROR</div>'; });
+  }
+
+  function showTab(btn, name) {
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+    if (name === 'mine' && !mineLoaded) loadMine();
+    if (name === 'admin' && !adminLoaded) loadAdmin();
+  }
+
+  function formatDate(iso) {
+    var d = new Date(iso);
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function esc(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ── Edit functions ────────────────────────────────────────────────────────
+  function openEdit(id, ev) {
+    if (ev) ev.stopPropagation();
+    fetch('/api/event?id=' + id, { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(e) { populateEditForm(e); document.getElementById('editOverlay').classList.add('open'); })
+      .catch(function() { alert('Ошибка загрузки данных'); });
+  }
+
+  function populateEditForm(e) {
+    document.getElementById('editId').value = e.id;
+    document.getElementById('editTitle').value = e.title || '';
+    document.getElementById('editShortDesc').value = e.shortDescription || '';
+    document.getElementById('editDesc').value = e.description || '';
+    document.getElementById('editAddress').value = e.address || '';
+    document.getElementById('editCost').value = e.cost || 0;
+    document.getElementById('editMsg').textContent = '';
+
+    // datetime-local expects "YYYY-MM-DDTHH:MM" in the user's local timezone.
+    var d = new Date(e.startsAt);
+    var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+    var local = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    document.getElementById('editStartsAt').value = local;
+
+    // set tag checkboxes — bits: IT=1, SPORT=2, OUTDOORS=4, INDOORS=8
+    var tagBits = { IT: 1, SPORT: 2, OUTDOORS: 4, INDOORS: 8 };
+    document.querySelectorAll('.editTag').forEach(function(cb) {
+      var bit = parseInt(cb.value);
+      cb.checked = (e.tags || []).some(function(t) { return tagBits[t] === bit; });
+    });
+  }
+
+  function closeEdit() {
+    document.getElementById('editOverlay').classList.remove('open');
+  }
+
+  function saveEdit() {
+    var id = document.getElementById('editId').value;
+    var title = document.getElementById('editTitle').value.trim();
+    var shortDesc = document.getElementById('editShortDesc').value.trim();
+    var desc = document.getElementById('editDesc').value.trim();
+    var address = document.getElementById('editAddress').value.trim();
+    var startsAt = document.getElementById('editStartsAt').value;
+    var cost = document.getElementById('editCost').value || '0';
+    var tagBitmask = 0;
+    document.querySelectorAll('.editTag:checked').forEach(function(cb) { tagBitmask |= parseInt(cb.value); });
+
+    if (!title) { document.getElementById('editMsg').textContent = '⚠ Название обязательно'; document.getElementById('editMsg').style.color = 'var(--red)'; return; }
+    if (!startsAt) { document.getElementById('editMsg').textContent = '⚠ Укажите дату'; document.getElementById('editMsg').style.color = 'var(--red)'; return; }
+
+    document.getElementById('editMsg').textContent = 'Сохраняю...';
+    document.getElementById('editMsg').style.color = 'var(--text-dim)';
+
+    var body = 'id=' + encodeURIComponent(id) +
+      '&title=' + encodeURIComponent(title) +
+      '&shortDescription=' + encodeURIComponent(shortDesc) +
+      '&description=' + encodeURIComponent(desc) +
+      '&address=' + encodeURIComponent(address) +
+      '&startsAt=' + encodeURIComponent(startsAt) +
+      '&cost=' + encodeURIComponent(cost) +
+      '&tags=' + tagBitmask;
+
+    fetch('/api/event/update', { method: 'POST', headers: authHeaders({'Content-Type': 'application/x-www-form-urlencoded'}), body: body })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          document.getElementById('editMsg').textContent = '✅ Сохранено!';
+          document.getElementById('editMsg').style.color = 'var(--green)';
+          adminLoaded = false;
+          setTimeout(function() { closeEdit(); loadAdmin(); }, 800);
+        } else {
+          document.getElementById('editMsg').textContent = '⚠ ' + (data.error || 'Ошибка');
+          document.getElementById('editMsg').style.color = 'var(--red)';
+        }
+      })
+      .catch(function() {
+        document.getElementById('editMsg').textContent = '⚠ Ошибка соединения';
+        document.getElementById('editMsg').style.color = 'var(--red)';
+      });
+  }
+
+  loadEvents();
+</script>
+</body>
+</html>
