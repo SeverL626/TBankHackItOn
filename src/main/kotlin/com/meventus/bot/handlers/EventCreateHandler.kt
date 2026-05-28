@@ -8,6 +8,7 @@ import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
 import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.meventus.bot.keyboards.CalendarKeyboard
 import com.meventus.bot.keyboards.TagKeyboard
 import com.meventus.bot.states.StateStorage
 import com.meventus.bot.states.UserState
@@ -78,7 +79,12 @@ class EventCreateHandler(
 
                 is UserState.AwaitingEventAddress -> {
                     stateStorage.set(userId, UserState.AwaitingEventDate(state.title, state.shortDesc, state.description, text, state.visibility, state.registrationMode, state.groupChatId))
-                    sendHelpableStep(bot, chatId, "date")
+                    bot.sendMessage(
+                        chatId = chatId,
+                        text = "Шаг 5/8 — выбери *дату* мероприятия:",
+                        parseMode = ParseMode.MARKDOWN,
+                        replyMarkup = CalendarKeyboard.buildForToday(),
+                    )
                 }
 
                 is UserState.AwaitingEventDate -> {
@@ -88,6 +94,33 @@ class EventCreateHandler(
                         return@text
                     }
                     stateStorage.set(userId, UserState.AwaitingEventCost(state.title, state.shortDesc, state.description, state.address, text, state.visibility, state.registrationMode, state.groupChatId))
+                    sendHelpableStep(bot, chatId, "cost")
+                }
+
+                is UserState.AwaitingEventTime -> {
+                    val timeRegex = Regex("^(\\d{1,2}):(\\d{2})$")
+                    val match = timeRegex.matchEntire(text.trim())
+                    if (match == null) {
+                        bot.sendMessage(chatId, "Неверный формат. Введи время в формате ЧЧ:ММ (например, 18:00)")
+                        return@text
+                    }
+                    val hours = match.groupValues[1].toInt()
+                    val minutes = match.groupValues[2].toInt()
+                    if (hours !in 0..23 || minutes !in 0..59) {
+                        bot.sendMessage(chatId, "Часы должны быть от 0 до 23, минуты от 0 до 59.")
+                        return@text
+                    }
+                    val fullDate = "${state.date} ${String.format("%02d:%02d", hours, minutes)}"
+                    val parsed = runCatching { DateUtils.parse(fullDate) }.getOrNull()
+                    if (parsed == null) {
+                        bot.sendMessage(chatId, "Ошибка при обработке даты. Начните заново: /new")
+                        stateStorage.clear(userId)
+                        return@text
+                    }
+                    stateStorage.set(userId, UserState.AwaitingEventCost(
+                        state.title, state.shortDesc, state.description, state.address,
+                        fullDate, state.visibility, state.registrationMode, state.groupChatId,
+                    ))
                     sendHelpableStep(bot, chatId, "cost")
                 }
 
@@ -354,6 +387,67 @@ class EventCreateHandler(
                         )
                     }
                 }
+
+                // ── Calendar callbacks ──────────────────────────────────────────────
+                data.startsWith("cdate:") -> {
+                    val dateStr = data.removePrefix("cdate:")
+                    val currentState = stateStorage.get(userId) as? UserState.AwaitingEventDate ?: return@callbackQuery
+                    stateStorage.set(userId, UserState.AwaitingEventTime(
+                        title = currentState.title,
+                        shortDesc = currentState.shortDesc,
+                        description = currentState.description,
+                        address = currentState.address,
+                        date = dateStr,
+                        visibility = currentState.visibility,
+                        registrationMode = currentState.registrationMode,
+                        groupChatId = currentState.groupChatId,
+                    ))
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = "Выбрана дата: *$dateStr*\n\nВведи время начала в формате ЧЧ:ММ (например, 18:00)",
+                        parseMode = ParseMode.MARKDOWN,
+                    )
+                }
+
+                data.startsWith("cnav:") -> {
+                    val parts = data.removePrefix("cnav:").split(":")
+                    val direction = parts.getOrNull(0)
+                    val yearMonth = parts.getOrNull(1)?.split("-") ?: return@callbackQuery
+                    val year = yearMonth.getOrNull(0)?.toIntOrNull() ?: return@callbackQuery
+                    val month = yearMonth.getOrNull(1)?.toIntOrNull() ?: return@callbackQuery
+                    val newYearMonth = when (direction) {
+                        "prev" -> if (month == 1) Pair(year - 1, 12) else Pair(year, month - 1)
+                        "next" -> if (month == 12) Pair(year + 1, 1) else Pair(year, month + 1)
+                        else -> return@callbackQuery
+                    }
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageReplyMarkup(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        replyMarkup = CalendarKeyboard.build(newYearMonth.first, newYearMonth.second),
+                    )
+                }
+
+                data == "ccancel" -> {
+                    stateStorage.clear(userId)
+                    bot.answerCallbackQuery(callbackQuery.id)
+                    bot.editMessageText(
+                        chatId = ChatId.fromId(chatId),
+                        messageId = messageId,
+                        text = "Создание мероприятия отменено.",
+                    )
+                }
+
+                data.startsWith("cnoop") -> {
+                    val alert = when {
+                        data == "cnoop:date" -> "Эта дата уже прошла"
+                        data == "cnoop:prev" -> "Нельзя выбрать прошедший месяц"
+                        else -> null
+                    }
+                    bot.answerCallbackQuery(callbackQuery.id, alert)
+                }
             }
         }
     }
@@ -444,7 +538,7 @@ class EventCreateHandler(
             "short" -> "Шаг 2/8 — введи *краткое описание* для карточки.\nНапример: `Встречаемся обсудить проекты и познакомиться`"
             "description" -> "Шаг 3/8 — введи *полное описание*: что будет, кому подойдёт, что взять с собой."
             "address" -> "Шаг 4/8 — введи *адрес*.\nНапример: `Москва, Тверская 1` или `онлайн`."
-            "date" -> "Шаг 5/8 — введи *дату и время*.\nФормат: `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`"
+            "date" -> "Шаг 5/8 — выбери дату в календаре или введи текстом.\nФормат: `ДД.ММ.ГГГГ ЧЧ:ММ`\nНапример: `25.05.2026 18:00`"
             "cost" -> "Шаг 6/8 — введи *стоимость* в рублях.\n`0` — если бесплатно."
             "payment" -> "Шаг 7/8 — выбери *способ оплаты*."
             "sbpPhone" -> "Введи *номер телефона* для приёма СБП.\nНапример: `+79991234567`"
