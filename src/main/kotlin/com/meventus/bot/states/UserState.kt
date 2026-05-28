@@ -43,6 +43,15 @@ sealed interface UserState {
         val groupChatId: Long? = null,
     ) : UserState
 
+    // After date is picked via calendar, ask for time
+    data class AwaitingEventTime(
+        val title: String, val shortDesc: String, val description: String, val address: String,
+        val date: String,
+        val visibility: EventVisibility = EventVisibility.PUBLIC,
+        val registrationMode: EventRegistrationMode = EventRegistrationMode.FREE,
+        val groupChatId: Long? = null,
+    ) : UserState
+
     data class AwaitingEventCost(
         val title: String, val shortDesc: String, val description: String,
         val address: String, val startsAt: String,
